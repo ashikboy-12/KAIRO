@@ -32,7 +32,7 @@ export default async function handler(req, res) {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
-                    "Authorization": "Bearer " + apiKey.trim()
+                    "Authorization": "Bearer " + apiKey.replace(/[^\x00-\x7F]/g, "").trim()
                 },
                 body: JSON.stringify({
                     model: "openrouter/free",
