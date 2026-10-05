@@ -32,24 +32,23 @@ export default async function handler(req, res) {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
-                    "Authorization": `Bearer ${apiKey}`,
-                    "HTTP-Referer": "https://kairo.vercel.app",
-                    "X-Title": "KAIRO AI"
+                    "Authorization": "Bearer " + apiKey.trim()
                 },
                 body: JSON.stringify({
                     model: "openrouter/free",
                     messages: [
                         {
                             role: "system",
-                            content: "You are KAIRO, a friendly AI companion. Answer truthfully. If you don't know something, say so. Respond in the user's language, preferably Bangla or Banglish when appropriate."
+                            content:
+                                "You are KAIRO, a friendly AI companion. Answer truthfully. If you don't know something, say so. Respond in the user's language, preferably Bangla or Banglish when appropriate."
                         },
                         {
                             role: "user",
-                            content: `RELEVANT CONTEXT:
-${context || "No previous context available."}
-
-USER MESSAGE:
-${message}`
+                            content:
+                                "RELEVANT CONTEXT:\n" +
+                                (context || "No previous context available.") +
+                                "\n\nUSER MESSAGE:\n" +
+                                message
                         }
                     ]
                 })
@@ -62,11 +61,14 @@ ${message}`
             console.error("OpenRouter error:", data);
 
             return res.status(response.status).json({
-                error: data?.error?.message || "OpenRouter request failed"
+                error:
+                    data?.error?.message ||
+                    "OpenRouter request failed"
             });
         }
 
-        const reply = data?.choices?.[0]?.message?.content;
+        const reply =
+            data?.choices?.[0]?.message?.content;
 
         if (!reply) {
             return res.status(500).json({
