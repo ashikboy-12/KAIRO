@@ -3,6 +3,9 @@ var sendButton = document.getElementById("sendButton");
 var chat = document.getElementById("chat");
 var status = document.getElementById("status");
 
+var isSending = false;
+
+
 function addMessage(type, text) {
 
     var message = document.createElement("div");
@@ -24,31 +27,80 @@ function addMessage(type, text) {
     chat.scrollTop = chat.scrollHeight;
 }
 
+
 async function askKairo(message) {
 
     status.textContent = "Thinking...";
 
     try {
 
-        var response = await fetch("/api/api", {
-            method: "POST",
+        var response = await fetch(
+            "/api/api",
+            {
+                method: "POST",
 
-            headers: {
-                "Content-Type": "application/json"
-            },
+                headers: {
+                    "Content-Type": "application/json"
+                },
 
-            body: JSON.stringify({
-                message: message,
-                context: "",
-                mode: "chat"
-            })
-        });
+                body: JSON.stringify({
+                    message: message,
+                    context: "",
+                    mode: "chat"
+                })
+            }
+        );
 
-        var data = await response.json();
+
+        var rawText = await response.text();
+
+        console.log(
+            "KAIRO RESPONSE STATUS:",
+            response.status
+        );
+
+        console.log(
+            "KAIRO RESPONSE:",
+            rawText
+        );
+
+
+        var data;
+
+        try {
+
+            data = JSON.parse(rawText);
+
+        } catch (jsonError) {
+
+            throw new Error(
+                "Server returned an invalid response."
+            );
+
+        }
+
 
         if (!response.ok) {
-            throw new Error("AI request failed");
+
+            throw new Error(
+                data.error ||
+                "AI request failed."
+            );
+
         }
+
+
+        if (
+            !data.reply ||
+            typeof data.reply !== "string"
+        ) {
+
+            throw new Error(
+                "KAIRO returned no reply."
+            );
+
+        }
+
 
         addMessage(
             "assistant",
@@ -57,50 +109,96 @@ async function askKairo(message) {
 
         status.textContent = "Ready";
 
+
     } catch (error) {
 
-        console.log(error);
+        console.log(
+            "KAIRO ERROR:",
+            error
+        );
 
         status.textContent = "Error";
 
+
+        var errorMessage =
+            error &&
+            error.message
+                ? error.message
+                : "Unknown error";
+
+
         addMessage(
             "assistant",
-            "KAIRO connection-e problem hoyeche."
+            "KAIRO: " + errorMessage
         );
+
     }
+
 }
 
-function sendMessage() {
 
-    var message = input.value.trim();
+async function sendMessage() {
+
+    if (isSending) {
+        return;
+    }
+
+
+    var message =
+        input.value.trim();
+
 
     if (!message) {
         return;
     }
+
+
+    isSending = true;
+
+    sendButton.disabled = true;
+
 
     addMessage(
         "user",
         message
     );
 
+
     input.value = "";
 
-    askKairo(message);
+
+    await askKairo(message);
+
+
+    isSending = false;
+
+    sendButton.disabled = false;
+
+    input.focus();
+
 }
 
-sendButton.onclick = sendMessage;
 
-input.onkeydown = function(event) {
+sendButton.onclick =
+    sendMessage;
 
-    if (
-        event.key === "Enter" &&
-        !event.shiftKey
-    ) {
 
-        event.preventDefault();
+input.onkeydown =
+    function(event) {
 
-        sendMessage();
-    }
-};
+        if (
+            event.key === "Enter" &&
+            !event.shiftKey
+        ) {
 
-status.textContent = "Ready";
+            event.preventDefault();
+
+            sendMessage();
+
+        }
+
+    };
+
+
+status.textContent =
+    "Ready";
