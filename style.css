@@ -806,3 +806,23 @@ button {
         max-width: 88%;
     }
    }
+/* KAIRO Voice Mode - clean interface */
+
+.voice-controls {
+    display: none !important;
+}
+
+.voice-mode {
+    touch-action: none;
+}
+
+.floating-kairo {
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+    cursor: grab;
+}
+
+.floating-kairo:active {
+    cursor: grabbing;
+}
