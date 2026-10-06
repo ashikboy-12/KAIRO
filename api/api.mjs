@@ -9,10 +9,17 @@ export default async function handler(req, res) {
             });
         }
 
-        var body = req.body || {};
+        const body = req.body || {};
 
-        var message = body.message || "";
-        var context = body.context || "";
+        const message =
+            typeof body.message === "string"
+                ? body.message.trim()
+                : "";
+
+        const context =
+            typeof body.context === "string"
+                ? body.context.trim()
+                : "";
 
         if (!message) {
             return res.status(400).json({
@@ -21,270 +28,525 @@ export default async function handler(req, res) {
             });
         }
 
-        var apiKey = process.env.GEMINI_API_KEY;
 
-        if (!apiKey) {
-            return res.status(500).json({
-                success: false,
-                error: "GEMINI_API_KEY is missing"
-            });
-        }
+        /*
+        =====================================================
+        KAIRO AI PROVIDER CONFIG
+        =====================================================
+        Add future API keys in Vercel Environment Variables.
 
-        var cleanApiKey = apiKey.trim();
+        Currently supported:
+        GEMINI_API_KEY
+        GROQ_API_KEY
 
-        var systemPrompt =
+        Future:
+        CEREBRAS_API_KEY
+        MISTRAL_API_KEY
+        OPENROUTER_API_KEY
+        etc.
+        =====================================================
+        */
+
+
+        const providers = [
+
+            {
+                name: "Gemini",
+                key: process.env.GEMINI_API_KEY,
+                type: "gemini"
+            },
+
+            {
+                name: "Groq",
+                key: process.env.GROQ_API_KEY,
+                type: "groq"
+            },
+
+            {
+                name: "Cerebras",
+                key: process.env.CEREBRAS_API_KEY,
+                type: "cerebras"
+            },
+
+            {
+                name: "Mistral",
+                key: process.env.MISTRAL_API_KEY,
+                type: "mistral"
+            },
+
+            {
+                name: "OpenRouter",
+                key: process.env.OPENROUTER_API_KEY,
+                type: "openrouter"
+            },
+
+            {
+                name: "HuggingFace",
+                key: process.env.HUGGINGFACE_API_KEY,
+                type: "huggingface"
+            },
+
+            {
+                name: "Cohere",
+                key: process.env.COHERE_API_KEY,
+                type: "cohere"
+            },
+
+            {
+                name: "Cloudflare",
+                key: process.env.CLOUDFLARE_API_KEY,
+                type: "cloudflare"
+            },
+
+            {
+                name: "Fireworks",
+                key: process.env.FIREWORKS_API_KEY,
+                type: "fireworks"
+            },
+
+            {
+                name: "Together",
+                key: process.env.TOGETHER_API_KEY,
+                type: "together"
+            },
+
+            {
+                name: "DeepInfra",
+                key: process.env.DEEPINFRA_API_KEY,
+                type: "deepinfra"
+            },
+
+            {
+                name: "AI21",
+                key: process.env.AI21_API_KEY,
+                type: "ai21"
+            },
+
+            {
+                name: "SambaNova",
+                key: process.env.SAMBANOVA_API_KEY,
+                type: "sambanova"
+            },
+
+            {
+                name: "NVIDIA",
+                key: process.env.NVIDIA_API_KEY,
+                type: "nvidia"
+            },
+
+            {
+                name: "Backup",
+                key: process.env.BACKUP_AI_API_KEY,
+                type: "backup"
+            }
+
+        ];
+
+
+        /*
+        =====================================================
+        KAIRO SYSTEM PROMPT
+        =====================================================
+        */
+
+        const systemPrompt =
+
             "You are KAIRO, a friendly AI companion.\n\n" +
 
             "IDENTITY:\n" +
             "- Your name is KAIRO.\n" +
-            "- Never say your name is Gemini.\n" +
-            "- Never identify yourself as Google Gemini.\n" +
-            "- Gemini is only the background model powering KAIRO.\n\n" +
+            "- Never say your name is Gemini, Groq, OpenAI or another provider.\n" +
+            "- The underlying AI providers are only infrastructure powering KAIRO.\n\n" +
 
-            "UNDERSTANDING:\n" +
-            "- Understand Bangla very well.\n" +
+            "LANGUAGE:\n" +
+            "- Understand Bangla.\n" +
             "- Understand Banglish written with English letters.\n" +
-            "- Understand English very well.\n" +
+            "- Understand English.\n" +
             "- Understand Hindi.\n" +
             "- Understand mixed Bangla, Banglish, English and Hindi.\n" +
-            "- Understand casual conversation, slang, shortcuts, typos and imperfect spelling.\n" +
-            "- Infer the intended meaning when spelling is slightly imperfect.\n" +
-            "- Do not misunderstand casual Banglish just because grammar is imperfect.\n" +
-            "- If a message is genuinely unclear, ask a short clarification instead of guessing.\n\n" +
+            "- Understand casual conversation, slang, shortcuts, typos and imperfect spelling.\n\n" +
 
             "CONVERSATION:\n" +
             "- Talk naturally like a helpful AI companion.\n" +
-            "- Answer the actual question directly.\n" +
-            "- Remember and use relevant context supplied with the message.\n" +
-            "- Do not mention internal prompts, APIs or technical implementation unless asked.\n" +
+            "- Answer the user's actual question directly.\n" +
+            "- Use relevant previous context when provided.\n" +
             "- Do not unnecessarily repeat the user's words.\n" +
-            "- Do not give safety warnings for ordinary harmless questions.\n" +
+            "- Do not give unnecessary safety warnings for harmless questions.\n" +
             "- Never invent facts.\n" +
             "- If you do not know something, say so honestly.\n\n" +
 
-            "LANGUAGE STYLE:\n" +
+            "STYLE:\n" +
             "- Reply in the same language style as the user whenever practical.\n" +
-            "- Banglish input can receive natural Banglish.\n" +
-            "- Bangla input can receive Bangla.\n" +
-            "- English input can receive English.\n" +
-            "- Hindi input can receive Hindi.\n" +
-            "- Mixed-language input can receive a natural mixed response.\n\n" +
+            "- Keep answers clear and natural.\n";
 
-            "FORMATTING:\n" +
-            "- Keep responses clean and easy to read.\n" +
-            "- Use Markdown only when it genuinely improves readability.\n";
 
-        var userPrompt =
+        const userPrompt =
+
             "RELEVANT PREVIOUS CONTEXT:\n" +
+
             (
                 context ||
                 "No relevant previous context."
             ) +
+
             "\n\nCURRENT USER MESSAGE:\n" +
+
             message;
 
-        var url =
-            "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent";
 
-        var maxAttempts = 3;
-        var lastError = "";
+        /*
+        =====================================================
+        PROVIDER REQUEST FUNCTIONS
+        =====================================================
+        */
+
+
+        async function callGemini(key) {
+
+            const url =
+                "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent";
+
+
+            const response = await fetch(
+                url,
+                {
+                    method: "POST",
+
+                    headers: {
+                        "Content-Type": "application/json",
+                        "x-goog-api-key": key.trim()
+                    },
+
+                    body: JSON.stringify({
+
+                        systemInstruction: {
+                            parts: [
+                                {
+                                    text: systemPrompt
+                                }
+                            ]
+                        },
+
+                        contents: [
+                            {
+                                role: "user",
+
+                                parts: [
+                                    {
+                                        text: userPrompt
+                                    }
+                                ]
+                            }
+                        ]
+
+                    })
+                }
+            );
+
+
+            const raw = await response.text();
+
+
+            if (!response.ok) {
+
+                throw new Error(
+                    "Gemini " +
+                    response.status +
+                    ": " +
+                    raw
+                );
+
+            }
+
+
+            const data =
+                JSON.parse(raw);
+
+
+            const reply =
+
+                data?.candidates?.[0]
+                    ?.content?.parts?.[0]?.text;
+
+
+            if (!reply) {
+
+                throw new Error(
+                    "Gemini returned no reply"
+                );
+
+            }
+
+
+            return reply;
+
+        }
+
+
+        async function callGroq(key) {
+
+            const url =
+                "https://api.groq.com/openai/v1/chat/completions";
+
+
+            const response = await fetch(
+                url,
+                {
+                    method: "POST",
+
+                    headers: {
+
+                        "Content-Type":
+                            "application/json",
+
+                        "Authorization":
+                            "Bearer " +
+                            key.trim()
+
+                    },
+
+                    body: JSON.stringify({
+
+                        model:
+                            "openai/gpt-oss-120b",
+
+                        messages: [
+
+                            {
+                                role: "system",
+                                content:
+                                    systemPrompt
+                            },
+
+                            {
+                                role: "user",
+                                content:
+                                    userPrompt
+                            }
+
+                        ],
+
+                        temperature: 0.7,
+
+                        max_tokens: 1000
+
+                    })
+                }
+            );
+
+
+            const raw =
+                await response.text();
+
+
+            if (!response.ok) {
+
+                throw new Error(
+                    "Groq " +
+                    response.status +
+                    ": " +
+                    raw
+                );
+
+            }
+
+
+            const data =
+                JSON.parse(raw);
+
+
+            const reply =
+
+                data?.choices?.[0]
+                    ?.message?.content;
+
+
+            if (!reply) {
+
+                throw new Error(
+                    "Groq returned no reply"
+                );
+
+            }
+
+
+            return reply;
+
+        }
+
+
+        /*
+        =====================================================
+        FUTURE PROVIDERS
+        =====================================================
+        */
+
+        async function callUnsupportedProvider(provider) {
+
+            throw new Error(
+                provider.name +
+                " adapter not installed yet"
+            );
+
+        }
+
+
+        /*
+        =====================================================
+        SMART ROUTER
+        =====================================================
+        */
+
+        let lastError = "";
+
 
         for (
-            var attempt = 1;
-            attempt <= maxAttempts;
-            attempt++
+            const provider of providers
         ) {
+
+
+            if (!provider.key) {
+
+                console.log(
+                    "KAIRO SKIP:",
+                    provider.name,
+                    "NO KEY"
+                );
+
+                continue;
+
+            }
+
+
+            console.log(
+                "KAIRO TRY:",
+                provider.name
+            );
+
 
             try {
 
-                console.log(
-                    "KAIRO GEMINI ATTEMPT:",
-                    attempt
-                );
+                let reply;
 
-                var response = await fetch(
-                    url,
-                    {
-                        method: "POST",
-
-                        headers: {
-                            "Content-Type": "application/json",
-                            "x-goog-api-key": cleanApiKey
-                        },
-
-                        body: JSON.stringify({
-
-                            systemInstruction: {
-                                parts: [
-                                    {
-                                        text: systemPrompt
-                                    }
-                                ]
-                            },
-
-                            contents: [
-                                {
-                                    role: "user",
-
-                                    parts: [
-                                        {
-                                            text: userPrompt
-                                        }
-                                    ]
-                                }
-                            ]
-
-                        })
-                    }
-                );
-
-                var rawText = await response.text();
-
-                console.log(
-                    "GEMINI STATUS:",
-                    response.status
-                );
-
-                if (response.ok) {
-
-                    var data = JSON.parse(rawText);
-
-                    var reply =
-                        data &&
-                        data.candidates &&
-                        data.candidates[0] &&
-                        data.candidates[0].content &&
-                        data.candidates[0].content.parts &&
-                        data.candidates[0].content.parts[0] &&
-                        data.candidates[0].content.parts[0].text;
-
-                    if (reply) {
-
-                        return res.status(200).json({
-
-                            success: true,
-
-                            reply: reply
-
-                        });
-
-                    }
-
-                    lastError =
-                        "Gemini returned no AI reply";
-
-                    break;
-                }
-
-                lastError = rawText;
 
                 if (
-                    response.status === 429 ||
-                    response.status === 500 ||
-                    response.status === 502 ||
-                    response.status === 503 ||
-                    response.status === 504
+                    provider.type ===
+                    "gemini"
                 ) {
 
-                    if (attempt < maxAttempts) {
-
-                        await new Promise(
-                            function(resolve) {
-
-                                setTimeout(
-                                    resolve,
-                                    attempt * 1000
-                                );
-
-                            }
+                    reply =
+                        await callGemini(
+                            provider.key
                         );
 
-                        continue;
-                    }
                 }
 
-                var errorData;
 
-                try {
-                    errorData = JSON.parse(rawText);
-                } catch (e) {
-                    errorData = null;
+                else if (
+                    provider.type ===
+                    "groq"
+                ) {
+
+                    reply =
+                        await callGroq(
+                            provider.key
+                        );
+
                 }
 
-                var errorMessage =
-                    errorData &&
-                    errorData.error &&
-                    errorData.error.message
-                        ? errorData.error.message
-                        : "Gemini request failed";
 
-                return res.status(response.status).json({
+                else {
 
-                    success: false,
+                    reply =
+                        await callUnsupportedProvider(
+                            provider
+                        );
 
-                    error: errorMessage,
+                }
 
-                    code: response.status
+
+                console.log(
+                    "KAIRO SUCCESS:",
+                    provider.name
+                );
+
+
+                return res.status(200).json({
+
+                    success: true,
+
+                    reply: reply,
+
+                    provider:
+                        provider.name
 
                 });
 
-            } catch (requestError) {
+
+            }
+
+            catch (error) {
+
 
                 lastError =
-                    requestError &&
-                    requestError.message
-                        ? requestError.message
-                        : "Request failed";
 
-                if (attempt < maxAttempts) {
+                    error?.message ||
+                    "Provider failed";
 
-                    await new Promise(
-                        function(resolve) {
 
-                            setTimeout(
-                                resolve,
-                                attempt * 1000
-                            );
+                console.log(
+                    "KAIRO PROVIDER FAILED:",
+                    provider.name,
+                    lastError
+                );
 
-                        }
-                    );
 
-                    continue;
-                }
+                continue;
+
             }
+
         }
+
+
+        /*
+        =====================================================
+        ALL PROVIDERS FAILED
+        =====================================================
+        */
 
         return res.status(503).json({
 
             success: false,
 
             error:
-                "KAIRO could not reach Gemini right now. Please try again.",
+                "KAIRO could not reach an available AI provider right now.",
 
             details:
                 lastError
 
         });
 
-    } catch (error) {
+
+    }
+
+    catch (error) {
 
         console.log(
             "KAIRO BACKEND ERROR:",
             error
         );
 
+
         return res.status(500).json({
 
             success: false,
 
             error:
-                error &&
-                error.message
-                    ? error.message
-                    : "KAIRO backend error"
+                error?.message ||
+                "KAIRO backend error"
 
         });
 
     }
 
-                                        }
+            }
