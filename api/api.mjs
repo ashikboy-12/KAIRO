@@ -1,99 +1,124 @@
 export default async function handler(req, res) {
+
     try {
+
         if (req.method !== "POST") {
+
             return res.status(405).json({
                 error: "Method not allowed"
             });
         }
 
-        const body = req.body || {};
-        const message = body.message;
-        const context = body.context || "";
-        const mode = body.mode || "chat";
+
+        var body = req.body || {};
+
+        var message = body.message || "";
+
+        var context = body.context || "";
+
+        var mode = body.mode || "chat";
+
 
         if (!message) {
+
             return res.status(400).json({
                 error: "Message is required"
             });
         }
 
-        const apiKey = process.env.OPENROUTER_API_KEY;
+
+        var apiKey =
+            process.env.OPENROUTER_API_KEY;
+
 
         if (!apiKey) {
+
             return res.status(500).json({
-                error: "OPENROUTER_API_KEY is missing"
+                error:
+                    "OPENROUTER_API_KEY is missing"
             });
         }
 
-        const cleanApiKey = apiKey
-            .replace(/[^\x00-\x7F]/g, "")
-            .trim();
 
-        // =========================
-        // CHAT MODE
-        // =========================
+        var cleanApiKey =
+            apiKey
+                .replace(/[^\x00-\x7F]/g, "")
+                .trim();
 
-        if (mode === "chat") {
 
-            const systemPrompt = `
-You are KAIRO, a friendly AI companion.
+        if (mode !== "chat") {
 
-LANGUAGE:
-- Understand Bangla.
-- Understand Banglish.
-- Understand English.
-- Understand Hindi.
-- Understand mixed Bangla + Banglish + English + Hindi.
-- Understand casual slang, shortcuts and imperfect spelling.
+            return res.status(400).json({
+                error:
+                    "Chat mode only for now"
+            });
+        }
 
-RESPONSE:
-- Reply naturally in the user's language.
-- If the user uses Banglish, reply naturally in Banglish.
-- If the user uses Bangla, reply in Bangla.
-- If the user uses English, reply in English.
-- Keep normal replies concise and conversational.
-- Do not repeat the user's question.
-- Do not add unnecessary warnings.
-- Do not add unnecessary introductions.
-- Do not pretend to perform actions you cannot perform.
 
-VOICE:
-- Replies may be spoken aloud.
-- Keep spoken answers natural and reasonably short.
-- Avoid unnecessary lists when answering in voice conversation.
+        var systemPrompt =
+            "You are KAIRO, a friendly AI companion.\n\n" +
 
-TRUTH:
-- Never invent facts.
-- If something is unknown, say so.
-- Do not claim live information unless live data is actually available.
-`;
+            "Understand Bangla, Banglish, English and Hindi.\n" +
 
-            const response = await fetch(
+            "Understand casual messages, slang and imperfect spelling.\n\n" +
+
+            "Reply naturally in the user's language.\n\n" +
+
+            "Be friendly, concise and helpful.\n\n" +
+
+            "Never invent information.\n\n" +
+
+            "If you do not know something, say so honestly.\n\n" +
+
+            "Do not give unnecessary safety warnings for normal harmless questions.";
+
+
+        var response =
+            await fetch(
                 "https://openrouter.ai/api/v1/chat/completions",
                 {
                     method: "POST",
 
                     headers: {
-                        "Content-Type": "application/json",
+                        "Content-Type":
+                            "application/json",
+
                         "Authorization":
-                            "Bearer " + cleanApiKey
+                            "Bearer " +
+                            cleanApiKey,
+
+                        "HTTP-Referer":
+                            "https://kairo.vercel.app",
+
+                        "X-Title":
+                            "KAIRO AI"
                     },
 
                     body: JSON.stringify({
-                        model: "openrouter/free",
+
+                        model:
+                            "openrouter/free",
 
                         messages: [
+
                             {
-                                role: "system",
-                                content: systemPrompt
+                                role:
+                                    "system",
+
+                                content:
+                                    systemPrompt
                             },
 
                             {
-                                role: "user",
+                                role:
+                                    "user",
+
                                 content:
                                     "RELEVANT PREVIOUS CONTEXT:\n" +
-                                    (context ||
-                                        "No previous context available.") +
+                                    (
+                                        context ||
+                                        "No relevant previous conversation."
+                                    ) +
                                     "\n\nCURRENT USER MESSAGE:\n" +
                                     message
                             }
@@ -102,131 +127,80 @@ TRUTH:
                 }
             );
 
-            const data = await response.json();
 
-            if (!response.ok) {
-                console.error(
-                    "OpenRouter chat error:",
-                    data
-                );
+        var data =
+            await response.json();
 
-                return res.status(response.status).json({
-                    error:
-                        data?.error?.message ||
-                        "OpenRouter request failed"
-                });
-            }
 
-            const reply =
-                data?.choices?.[0]?.message?.content;
+        if (!response.ok) {
 
-            if (!reply) {
-                return res.status(500).json({
-                    error: "No AI reply received"
-                });
-            }
+            console.log(
+                "OPENROUTER ERROR:",
+                JSON.stringify(data)
+            );
 
-            return res.status(200).json({
-                success: true,
-                reply: reply
+
+            return res.status(
+                response.status
+            ).json({
+
+                error:
+                    data &&
+                    data.error &&
+                    data.error.message
+                        ? data.error.message
+                        : "OpenRouter request failed",
+
+                code:
+                    data &&
+                    data.error &&
+                    data.error.code
+                        ? data.error.code
+                        : response.status
             });
         }
 
-        // =========================
-        // TTS MODE
-        // =========================
 
-        if (mode === "tts") {
+        var reply =
+            data &&
+            data.choices &&
+            data.choices[0] &&
+            data.choices[0].message &&
+            data.choices[0].message.content;
 
-            const speechResponse = await fetch(
-                "https://openrouter.ai/api/v1/audio/speech",
-                {
-                    method: "POST",
 
-                    headers: {
-                        "Content-Type": "application/json",
-                        "Authorization":
-                            "Bearer " + cleanApiKey
-                    },
+        if (!reply) {
 
-                    body: JSON.stringify({
-                        model: "deepgram/flux-tts:free",
-                        input: message,
-                        voice: "aura-asteria-en",
-                        response_format: "mp3"
-                    })
-                }
-            );
-
-            if (!speechResponse.ok) {
-
-                const errorText =
-                    await speechResponse.text();
-
-                console.error(
-                    "OpenRouter TTS error:",
-                    errorText
-                );
-
-                return res.status(
-                    speechResponse.status
-                ).json({
-                    error:
-                        "KAIRO voice generation failed",
-                    details: errorText
-                });
-            }
-
-            const audioBuffer =
-                Buffer.from(
-                    await speechResponse.arrayBuffer()
-                );
-
-            if (!audioBuffer.length) {
-                return res.status(500).json({
-                    error: "Empty voice audio received"
-                });
-            }
-
-            res.statusCode = 200;
-
-            res.setHeader(
-                "Content-Type",
-                "audio/mpeg"
-            );
-
-            res.setHeader(
-                "Content-Length",
-                audioBuffer.length
-            );
-
-            res.setHeader(
-                "Cache-Control",
-                "no-store"
-            );
-
-            return res.end(audioBuffer);
+            return res.status(500).json({
+                error:
+                    "OpenRouter returned no AI reply"
+            });
         }
 
-        // =========================
-        // UNKNOWN MODE
-        // =========================
 
-        return res.status(400).json({
-            error: "Unknown mode"
+        return res.status(200).json({
+
+            success: true,
+
+            reply: reply
         });
+
 
     } catch (error) {
 
-        console.error(
-            "KAIRO backend error:",
+        console.log(
+            "KAIRO BACKEND ERROR:",
             error
         );
 
+
         return res.status(500).json({
+
             error:
-                error?.message ||
-                "KAIRO backend error"
+                error &&
+                error.message
+                    ? error.message
+                    : "KAIRO backend error"
         });
     }
-}
+                }
