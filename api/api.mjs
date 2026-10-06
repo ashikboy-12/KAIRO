@@ -6,11 +6,10 @@ export default async function handler(req, res) {
             });
         }
 
-        const {
-            message,
-            context,
-            mode = "chat"
-        } = req.body || {};
+        const body = req.body || {};
+        const message = body.message;
+        const context = body.context || "";
+        const mode = body.mode || "chat";
 
         if (!message) {
             return res.status(400).json({
@@ -30,10 +29,9 @@ export default async function handler(req, res) {
             .replace(/[^\x00-\x7F]/g, "")
             .trim();
 
-
-        // =========================================
-        // TEXT AI
-        // =========================================
+        // =========================
+        // CHAT MODE
+        // =========================
 
         if (mode === "chat") {
 
@@ -42,30 +40,32 @@ You are KAIRO, a friendly AI companion.
 
 LANGUAGE:
 - Understand Bangla.
-- Understand Banglish written with English letters.
+- Understand Banglish.
 - Understand English.
 - Understand Hindi.
-- Understand mixed Bangla + English + Hindi.
-- Understand casual slang and spelling mistakes.
+- Understand mixed Bangla + Banglish + English + Hindi.
+- Understand casual slang, shortcuts and imperfect spelling.
 
 RESPONSE:
-- Reply in the same language/style as the user.
+- Reply naturally in the user's language.
 - If the user uses Banglish, reply naturally in Banglish.
-- Keep normal conversation concise.
+- If the user uses Bangla, reply in Bangla.
+- If the user uses English, reply in English.
+- Keep normal replies concise and conversational.
 - Do not repeat the user's question.
 - Do not add unnecessary warnings.
-- Do not add dramatic or overly formal language.
-- Do not say "Hi, I'm KAIRO" unless the user asks.
-- Talk naturally like a friend.
-- If the user asks something simple, give a simple answer.
-- If you don't know something, say so.
-- Never invent facts.
+- Do not add unnecessary introductions.
+- Do not pretend to perform actions you cannot perform.
 
 VOICE:
-- When the response will be spoken aloud, write naturally.
-- Use short conversational sentences.
-- Avoid excessive punctuation.
-- Avoid long lists unless necessary.
+- Replies may be spoken aloud.
+- Keep spoken answers natural and reasonably short.
+- Avoid unnecessary lists when answering in voice conversation.
+
+TRUTH:
+- Never invent facts.
+- If something is unknown, say so.
+- Do not claim live information unless live data is actually available.
 `;
 
             const response = await fetch(
@@ -93,7 +93,7 @@ VOICE:
                                 content:
                                     "RELEVANT PREVIOUS CONTEXT:\n" +
                                     (context ||
-                                        "No previous context.") +
+                                        "No previous context available.") +
                                     "\n\nCURRENT USER MESSAGE:\n" +
                                     message
                             }
@@ -102,18 +102,15 @@ VOICE:
                 }
             );
 
-            const data =
-                await response.json();
+            const data = await response.json();
 
             if (!response.ok) {
                 console.error(
-                    "OpenRouter error:",
+                    "OpenRouter chat error:",
                     data
                 );
 
-                return res.status(
-                    response.status
-                ).json({
+                return res.status(response.status).json({
                     error:
                         data?.error?.message ||
                         "OpenRouter request failed"
@@ -131,18 +128,17 @@ VOICE:
 
             return res.status(200).json({
                 success: true,
-                reply
+                reply: reply
             });
         }
 
-
-        // =========================================
-        // TEXT TO SPEECH
-        // =========================================
+        // =========================
+        // TTS MODE
+        // =========================
 
         if (mode === "tts") {
 
-            const response = await fetch(
+            const speechResponse = await fetch(
                 "https://openrouter.ai/api/v1/audio/speech",
                 {
                     method: "POST",
@@ -154,73 +150,43 @@ VOICE:
                     },
 
                     body: JSON.stringify({
-                        model:
-                            "deepgram/flux-tts:free",
-
-                        input:
-                            message,
-
-                        voice:
-                            "aura-asteria-en",
-
-                        response_format:
-                            "mp3"
+                        model: "deepgram/flux-tts:free",
+                        input: message,
+                        voice: "aura-asteria-en",
+                        response_format: "mp3"
                     })
                 }
             );
 
-
-            if (!response.ok) {
+            if (!speechResponse.ok) {
 
                 const errorText =
-                    await response.text();
+                    await speechResponse.text();
 
                 console.error(
-                    "TTS error:",
+                    "OpenRouter TTS error:",
                     errorText
                 );
 
                 return res.status(
-                    response.status
+                    speechResponse.status
                 ).json({
                     error:
-                        "TTS generation failed"
+                        "KAIRO voice generation failed",
+                    details: errorText
                 });
             }
 
-
-            const contentType =
-                response.headers.get(
-                    "content-type"
-                ) || "";
-
-
-            if (
-                !contentType.includes(
-                    "audio"
-                )
-            ) {
-
-                const errorText =
-                    await response.text();
-
-                console.error(
-                    "Unexpected TTS response:",
-                    errorText
-                );
-
-                return res.status(500).json({
-                    error:
-                        "TTS did not return audio"
-                });
-            }
-
-
-            const buffer =
+            const audioBuffer =
                 Buffer.from(
-                    await response.arrayBuffer()
+                    await speechResponse.arrayBuffer()
                 );
 
+            if (!audioBuffer.length) {
+                return res.status(500).json({
+                    error: "Empty voice audio received"
+                });
+            }
 
             res.statusCode = 200;
 
@@ -231,7 +197,7 @@ VOICE:
 
             res.setHeader(
                 "Content-Length",
-                buffer.length
+                audioBuffer.length
             );
 
             res.setHeader(
@@ -239,14 +205,16 @@ VOICE:
                 "no-store"
             );
 
-            return res.end(buffer);
+            return res.end(audioBuffer);
         }
 
+        // =========================
+        // UNKNOWN MODE
+        // =========================
 
         return res.status(400).json({
             error: "Unknown mode"
         });
-
 
     } catch (error) {
 
@@ -261,4 +229,4 @@ VOICE:
                 "KAIRO backend error"
         });
     }
-                        }
+}
