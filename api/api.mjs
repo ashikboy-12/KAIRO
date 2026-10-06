@@ -2,68 +2,64 @@ export default async function handler(req, res) {
 
     try {
 
+        console.log("KAIRO DIAGNOSTIC START");
+
         if (req.method !== "POST") {
+
+            console.log("METHOD:", req.method);
+
             return res.status(405).json({
-                error: "Method not allowed"
+                success: false,
+                error: "Method not allowed",
+                method: req.method
             });
         }
 
         var body = req.body || {};
 
         var message = body.message || "";
-        var context = body.context || "";
+
+        console.log("MESSAGE RECEIVED:", message ? "YES" : "NO");
 
         if (!message) {
+
             return res.status(400).json({
+                success: false,
                 error: "Message is required"
             });
         }
 
         var apiKey = process.env.GEMINI_API_KEY;
 
+        console.log(
+            "GEMINI KEY EXISTS:",
+            apiKey ? "YES" : "NO"
+        );
+
         if (!apiKey) {
+
             return res.status(500).json({
+                success: false,
                 error: "GEMINI_API_KEY is missing"
             });
         }
 
-        var cleanApiKey = apiKey
-            .replace(/[^\x00-\x7F]/g, "")
-            .trim();
+        console.log(
+            "GEMINI KEY LENGTH:",
+            apiKey.length
+        );
 
-        var systemPrompt =
-            "You are KAIRO, a friendly AI companion.\n\n" +
+        var cleanApiKey = apiKey.trim();
 
-            "LANGUAGE:\n" +
-            "- Understand Bangla perfectly.\n" +
-            "- Understand Banglish written with English letters.\n" +
-            "- Understand English.\n" +
-            "- Understand Hindi.\n" +
-            "- Understand mixed Bangla, Banglish, English and Hindi.\n" +
-            "- Understand casual slang, shortcuts and imperfect spelling.\n\n" +
+        console.log("KEY CLEANED: YES");
 
-            "RESPONSE:\n" +
-            "- Reply naturally in the user's language.\n" +
-            "- If the user uses Banglish, reply naturally in Banglish.\n" +
-            "- If the user uses Bangla, reply in Bangla.\n" +
-            "- If the user uses English, reply in English.\n" +
-            "- Be friendly, natural and concise.\n" +
-            "- Do not unnecessarily repeat the user's question.\n" +
-            "- Do not give unnecessary safety warnings for normal harmless questions.\n" +
-            "- Never invent information.\n" +
-            "- If you do not know something, say so honestly.";
+        var testUrl =
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent";
 
-        var userPrompt =
-            "RELEVANT PREVIOUS CONTEXT:\n" +
-            (
-                context ||
-                "No relevant previous conversation."
-            ) +
-            "\n\nCURRENT USER MESSAGE:\n" +
-            message;
+        console.log("ABOUT TO CALL GEMINI");
 
         var response = await fetch(
-            "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent",
+            testUrl,
             {
                 method: "POST",
 
@@ -74,88 +70,51 @@ export default async function handler(req, res) {
 
                 body: JSON.stringify({
 
-                    systemInstruction: {
-                        parts: [
-                            {
-                                text: systemPrompt
-                            }
-                        ]
-                    },
-
                     contents: [
                         {
-                            role: "user",
-
                             parts: [
                                 {
-                                    text: userPrompt
+                                    text: message
                                 }
                             ]
                         }
                     ]
+
                 })
             }
         );
-
-        var rawText = await response.text();
 
         console.log(
             "GEMINI STATUS:",
             response.status
         );
 
+        var rawText = await response.text();
+
         console.log(
             "GEMINI RAW:",
             rawText
         );
 
-        var data;
-
-        try {
-            data = JSON.parse(rawText);
-        } catch (e) {
-
-            data = {
-                error: {
-                    message: rawText
-                }
-            };
-
-        }
-
         if (!response.ok) {
 
-            var errorMessage =
-                data &&
-                data.error &&
-                data.error.message
-                    ? data.error.message
-                    : rawText ||
-                      "Unknown Gemini error";
-
-            var errorCode =
-                data &&
-                data.error &&
-                data.error.code
-                    ? data.error.code
-                    : response.status;
-
-            console.log(
-                "GEMINI ERROR MESSAGE:",
-                errorMessage
-            );
-
-            console.log(
-                "GEMINI ERROR CODE:",
-                errorCode
-            );
-
             return res.status(response.status).json({
+
                 success: false,
-                error: errorMessage,
-                code: errorCode
+
+                error:
+                    "Gemini API error",
+
+                status:
+                    response.status,
+
+                details:
+                    rawText
+
             });
         }
+
+        var data = JSON.parse(rawText);
 
         var reply =
             data &&
@@ -169,34 +128,47 @@ export default async function handler(req, res) {
         if (!reply) {
 
             return res.status(500).json({
-                success: false,
-                error: "Gemini returned no AI reply",
-                raw: rawText
-            });
 
+                success: false,
+
+                error:
+                    "Gemini returned no reply",
+
+                raw:
+                    rawText
+
+            });
         }
 
+        console.log("GEMINI REPLY RECEIVED");
+
         return res.status(200).json({
+
             success: true,
+
             reply: reply
+
         });
 
     } catch (error) {
 
         console.log(
-            "KAIRO BACKEND ERROR:",
+            "KAIRO DIAGNOSTIC ERROR:",
             error
         );
 
         return res.status(500).json({
+
             success: false,
+
             error:
                 error &&
                 error.message
                     ? error.message
-                    : "KAIRO backend error"
+                    : "Unknown backend error"
+
         });
 
     }
 
-                }
+}
