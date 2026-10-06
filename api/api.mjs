@@ -28,26 +28,6 @@ export default async function handler(req, res) {
             });
         }
 
-
-        /*
-        =====================================================
-        KAIRO AI PROVIDER CONFIG
-        =====================================================
-        Add future API keys in Vercel Environment Variables.
-
-        Currently supported:
-        GEMINI_API_KEY
-        GROQ_API_KEY
-
-        Future:
-        CEREBRAS_API_KEY
-        MISTRAL_API_KEY
-        OPENROUTER_API_KEY
-        etc.
-        =====================================================
-        */
-
-
         const providers = [
 
             {
@@ -63,15 +43,15 @@ export default async function handler(req, res) {
             },
 
             {
-                name: "Cerebras",
-                key: process.env.CEREBRAS_API_KEY,
-                type: "cerebras"
-            },
-
-            {
                 name: "Mistral",
                 key: process.env.MISTRAL_API_KEY,
                 type: "mistral"
+            },
+
+            {
+                name: "Cerebras",
+                key: process.env.CEREBRAS_API_KEY,
+                type: "cerebras"
             },
 
             {
@@ -142,21 +122,14 @@ export default async function handler(req, res) {
 
         ];
 
-
-        /*
-        =====================================================
-        KAIRO SYSTEM PROMPT
-        =====================================================
-        */
-
         const systemPrompt =
 
             "You are KAIRO, a friendly AI companion.\n\n" +
 
             "IDENTITY:\n" +
             "- Your name is KAIRO.\n" +
-            "- Never say your name is Gemini, Groq, OpenAI or another provider.\n" +
-            "- The underlying AI providers are only infrastructure powering KAIRO.\n\n" +
+            "- Never say your name is Gemini, Groq, Mistral, OpenAI or another provider.\n" +
+            "- AI providers are only infrastructure powering KAIRO.\n\n" +
 
             "LANGUAGE:\n" +
             "- Understand Bangla.\n" +
@@ -177,8 +150,7 @@ export default async function handler(req, res) {
 
             "STYLE:\n" +
             "- Reply in the same language style as the user whenever practical.\n" +
-            "- Keep answers clear and natural.\n";
-
+            "- Keep answers clear, natural and conversational.\n";
 
         const userPrompt =
 
@@ -194,18 +166,14 @@ export default async function handler(req, res) {
             message;
 
 
-        /*
-        =====================================================
-        PROVIDER REQUEST FUNCTIONS
-        =====================================================
-        */
-
+        // ================================
+        // GEMINI
+        // ================================
 
         async function callGemini(key) {
 
             const url =
                 "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent";
-
 
             const response = await fetch(
                 url,
@@ -243,9 +211,8 @@ export default async function handler(req, res) {
                 }
             );
 
-
-            const raw = await response.text();
-
+            const raw =
+                await response.text();
 
             if (!response.ok) {
 
@@ -258,16 +225,12 @@ export default async function handler(req, res) {
 
             }
 
-
             const data =
                 JSON.parse(raw);
 
-
             const reply =
-
                 data?.candidates?.[0]
                     ?.content?.parts?.[0]?.text;
-
 
             if (!reply) {
 
@@ -277,32 +240,29 @@ export default async function handler(req, res) {
 
             }
 
-
             return reply;
 
         }
 
 
+        // ================================
+        // GROQ
+        // ================================
+
         async function callGroq(key) {
 
-            const url =
-                "https://api.groq.com/openai/v1/chat/completions";
-
-
             const response = await fetch(
-                url,
+                "https://api.groq.com/openai/v1/chat/completions",
                 {
                     method: "POST",
 
                     headers: {
-
                         "Content-Type":
                             "application/json",
 
                         "Authorization":
                             "Bearer " +
                             key.trim()
-
                     },
 
                     body: JSON.stringify({
@@ -334,10 +294,8 @@ export default async function handler(req, res) {
                 }
             );
 
-
             const raw =
                 await response.text();
-
 
             if (!response.ok) {
 
@@ -350,16 +308,12 @@ export default async function handler(req, res) {
 
             }
 
-
             const data =
                 JSON.parse(raw);
 
-
             const reply =
-
                 data?.choices?.[0]
                     ?.message?.content;
-
 
             if (!reply) {
 
@@ -369,17 +323,97 @@ export default async function handler(req, res) {
 
             }
 
+            return reply;
+
+        }
+
+
+        // ================================
+        // MISTRAL
+        // ================================
+
+        async function callMistral(key) {
+
+            const response = await fetch(
+                "https://api.mistral.ai/v1/chat/completions",
+                {
+                    method: "POST",
+
+                    headers: {
+                        "Content-Type":
+                            "application/json",
+
+                        "Authorization":
+                            "Bearer " +
+                            key.trim()
+                    },
+
+                    body: JSON.stringify({
+
+                        model:
+                            "mistral-small-latest",
+
+                        messages: [
+
+                            {
+                                role: "system",
+                                content:
+                                    systemPrompt
+                            },
+
+                            {
+                                role: "user",
+                                content:
+                                    userPrompt
+                            }
+
+                        ],
+
+                        temperature: 0.7,
+
+                        max_tokens: 1000
+
+                    })
+                }
+            );
+
+            const raw =
+                await response.text();
+
+            if (!response.ok) {
+
+                throw new Error(
+                    "Mistral " +
+                    response.status +
+                    ": " +
+                    raw
+                );
+
+            }
+
+            const data =
+                JSON.parse(raw);
+
+            const reply =
+                data?.choices?.[0]
+                    ?.message?.content;
+
+            if (!reply) {
+
+                throw new Error(
+                    "Mistral returned no reply"
+                );
+
+            }
 
             return reply;
 
         }
 
 
-        /*
-        =====================================================
-        FUTURE PROVIDERS
-        =====================================================
-        */
+        // ================================
+        // OTHER PROVIDERS
+        // ================================
 
         async function callUnsupportedProvider(provider) {
 
@@ -391,19 +425,15 @@ export default async function handler(req, res) {
         }
 
 
-        /*
-        =====================================================
-        SMART ROUTER
-        =====================================================
-        */
+        // ================================
+        // PROVIDER FALLBACK
+        // ================================
 
         let lastError = "";
-
 
         for (
             const provider of providers
         ) {
-
 
             if (!provider.key) {
 
@@ -417,12 +447,10 @@ export default async function handler(req, res) {
 
             }
 
-
             console.log(
                 "KAIRO TRY:",
                 provider.name
             );
-
 
             try {
 
@@ -449,6 +477,19 @@ export default async function handler(req, res) {
 
                     reply =
                         await callGroq(
+                            provider.key
+                        );
+
+                }
+
+
+                else if (
+                    provider.type ===
+                    "mistral"
+                ) {
+
+                    reply =
+                        await callMistral(
                             provider.key
                         );
 
@@ -482,24 +523,20 @@ export default async function handler(req, res) {
 
                 });
 
-
             }
+
 
             catch (error) {
 
-
                 lastError =
-
                     error?.message ||
                     "Provider failed";
-
 
                 console.log(
                     "KAIRO PROVIDER FAILED:",
                     provider.name,
                     lastError
                 );
-
 
                 continue;
 
@@ -508,11 +545,9 @@ export default async function handler(req, res) {
         }
 
 
-        /*
-        =====================================================
-        ALL PROVIDERS FAILED
-        =====================================================
-        */
+        // ================================
+        // ALL PROVIDERS FAILED
+        // ================================
 
         return res.status(503).json({
 
@@ -536,7 +571,6 @@ export default async function handler(req, res) {
             error
         );
 
-
         return res.status(500).json({
 
             success: false,
@@ -549,4 +583,4 @@ export default async function handler(req, res) {
 
     }
 
-            }
+                                    }
