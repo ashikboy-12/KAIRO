@@ -1,11 +1,12 @@
-// ======================================================
-// KAIRO AI - APP.JS
-// Voice + Chat + History + Memory Context
-// ======================================================
+// =====================================================
+// KAIRO APP.JS
+// Stable Chat + Voice + History
+// =====================================================
 
 const messageInput = document.getElementById("messageInput");
 const sendButton = document.getElementById("sendButton");
 const micButton = document.getElementById("micButton");
+
 const chat = document.getElementById("chat");
 const statusEl = document.getElementById("status");
 
@@ -15,53 +16,64 @@ const closeHistory = document.getElementById("closeHistory");
 const historyBackdrop = document.getElementById("historyBackdrop");
 const historySearch = document.getElementById("historySearch");
 const historyList = document.getElementById("historyList");
+
 const floatingKairo = document.getElementById("floatingKairo");
 
 
-// ======================================================
+// =====================================================
 // STORAGE
-// ======================================================
+// =====================================================
 
 const HISTORY_KEY = "kairo_conversations";
-const MEMORY_KEY = "kairo_memories";
 
-let conversations = JSON.parse(
-    localStorage.getItem(HISTORY_KEY) || "[]"
-);
+let conversations = [];
 
-let memories = JSON.parse(
-    localStorage.getItem(MEMORY_KEY) || "[]"
-);
+try {
+    const saved = localStorage.getItem(HISTORY_KEY);
 
-
-// ======================================================
-// VOICE STATE
-// ======================================================
-
-let recognition = null;
-let isListening = false;
-let lastInputWasVoice = false;
-
-
-// ======================================================
-// STATUS
-// ======================================================
-
-function setStatus(text) {
-    if (statusEl) {
-        statusEl.textContent = text;
+    if (saved) {
+        conversations = JSON.parse(saved);
     }
+
+    if (!Array.isArray(conversations)) {
+        conversations = [];
+    }
+
+} catch (error) {
+    conversations = [];
 }
 
 
-// ======================================================
+// =====================================================
+// STATUS
+// =====================================================
+
+function setStatus(text) {
+
+    if (statusEl) {
+        statusEl.textContent = text;
+    }
+
+}
+
+
+// =====================================================
 // CHAT MESSAGE
-// ======================================================
+// =====================================================
 
 function addMessage(role, text) {
-    const message = document.createElement("div");
 
-    message.className =
+    if (!chat) return;
+
+    const welcome = chat.querySelector(".welcome");
+
+    if (welcome) {
+        welcome.remove();
+    }
+
+    const wrapper = document.createElement("div");
+
+    wrapper.className =
         role === "user"
             ? "message user-message"
             : "message ai-message";
@@ -70,442 +82,350 @@ function addMessage(role, text) {
 
     bubble.className = "message-bubble";
 
-    bubble.textContent = text;
+    bubble.textContent = String(text);
 
-    message.appendChild(bubble);
+    wrapper.appendChild(bubble);
 
-    chat.appendChild(message);
+    chat.appendChild(wrapper);
 
     chat.scrollTop = chat.scrollHeight;
 }
 
 
-// ======================================================
-// WELCOME SCREEN
-// ======================================================
+// =====================================================
+// SAVE HISTORY
+// =====================================================
 
-function removeWelcome() {
-    const welcome = chat.querySelector(".welcome");
-
-    if (welcome) {
-        welcome.remove();
-    }
-}
-
-
-// ======================================================
-// SAVE CONVERSATION
-// ======================================================
-
-function saveConversation(userMessage, aiReply) {
+function saveConversation(userText, aiText) {
 
     conversations.push({
         id: Date.now(),
-        user: userMessage,
-        assistant: aiReply,
+        user: userText,
+        assistant: aiText,
         time: new Date().toISOString()
     });
 
-    // Keep local history manageable
     if (conversations.length > 300) {
         conversations = conversations.slice(-300);
     }
 
-    localStorage.setItem(
-        HISTORY_KEY,
-        JSON.stringify(conversations)
-    );
+    try {
+        localStorage.setItem(
+            HISTORY_KEY,
+            JSON.stringify(conversations)
+        );
+    } catch (error) {
+        console.log("History error:", error);
+    }
 }
 
 
-// ======================================================
-// BUILD RELEVANT CONTEXT
-// ======================================================
+// =====================================================
+// BUILD OLD CONTEXT
+// =====================================================
 
 function buildContext(message) {
 
-    const queryWords = message
+    if (!conversations.length) {
+        return "No previous conversation available.";
+    }
+
+    const words = String(message)
         .toLowerCase()
         .split(/\s+/)
-        .filter(word => word.length > 2);
+        .filter(word => word.length >= 3);
 
-    const relevantHistory = conversations
-        .map(item => {
+    const matches = [];
 
-            const text = (
-                item.user +
-                " " +
-                item.assistant
-            ).toLowerCase();
+    conversations.forEach(item => {
 
-            let score = 0;
+        const oldText = (
+            String(item.user || "") +
+            " " +
+            String(item.assistant || "")
+        ).toLowerCase();
 
-            for (const word of queryWords) {
+        let score = 0;
 
-                if (text.includes(word)) {
-                    score++;
-                }
+        words.forEach(word => {
+
+            if (oldText.includes(word)) {
+                score++;
             }
 
-            return {
-                ...item,
-                score
-            };
-        })
-        .filter(item => item.score > 0)
-        .sort((a, b) => b.score - a.score)
-        .slice(0, 8);
+        });
 
+        if (score > 0) {
+            matches.push({
+                item: item,
+                score: score
+            });
+        }
 
-    const relevantMemories = memories
-        .filter(memory => {
+    });
 
-            const text =
-                typeof memory === "string"
-                    ? memory
-                    : JSON.stringify(memory);
+    matches.sort((a, b) => b.score - a.score);
 
-            const lower = text.toLowerCase();
+    const selected = matches.slice(0, 5);
 
-            return queryWords.some(word =>
-                lower.includes(word)
-            );
-        })
-        .slice(0, 10);
-
+    if (!selected.length) {
+        return "No relevant previous conversation available.";
+    }
 
     let context = "";
 
+    selected.forEach(entry => {
 
-    if (relevantHistory.length) {
+        context +=
+            "User: " +
+            entry.item.user +
+            "\n";
 
-        context += "RELEVANT CONVERSATION HISTORY:\n";
+        context +=
+            "KAIRO: " +
+            entry.item.assistant +
+            "\n\n";
 
-        relevantHistory.forEach(item => {
-
-            context +=
-                "User: " +
-                item.user +
-                "\nKAIRO: " +
-                item.assistant +
-                "\n\n";
-        });
-    }
-
-
-    if (relevantMemories.length) {
-
-        context += "\nRELEVANT MEMORY:\n";
-
-        relevantMemories.forEach(memory => {
-
-            context +=
-                typeof memory === "string"
-                    ? memory
-                    : JSON.stringify(memory);
-
-            context += "\n";
-        });
-    }
-
-
-    if (!context) {
-        context = "No relevant previous context found.";
-    }
+    });
 
     return context;
 }
 
 
-// ======================================================
-// SEND MESSAGE TO KAIRO
-// ======================================================
+// =====================================================
+// SEND MESSAGE
+// =====================================================
 
 async function sendMessage() {
 
-    const message =
-        messageInput.value.trim();
+    if (!messageInput) return;
 
-    if (!message) {
-        return;
-    }
+    const message = messageInput.value.trim();
 
-
-    removeWelcome();
+    if (!message) return;
 
     addMessage("user", message);
 
     messageInput.value = "";
-
     messageInput.style.height = "auto";
 
-    sendButton.disabled = true;
+    if (sendButton) {
+        sendButton.disabled = true;
+    }
+
+    if (micButton) {
+        micButton.disabled = true;
+    }
 
     setStatus("Thinking...");
 
-
-    // Save whether this message came from voice
-    const shouldSpeakReply = lastInputWasVoice;
-
-    // Reset immediately
-    lastInputWasVoice = false;
-
-
     try {
 
-        const context =
-            buildContext(message);
+        const context = buildContext(message);
 
+        const response = await fetch("/api/api", {
 
-        const response = await fetch(
-            "/api/api",
-            {
-                method: "POST",
+            method: "POST",
 
-                headers: {
-                    "Content-Type": "application/json"
-                },
+            headers: {
+                "Content-Type": "application/json"
+            },
 
-                body: JSON.stringify({
-                    message: message,
-                    context: context
-                })
-            }
-        );
+            body: JSON.stringify({
+                message: message,
+                context: context
+            })
 
+        });
 
-        const data =
-            await response.json();
-
+        const data = await response.json();
 
         if (!response.ok) {
 
             throw new Error(
-                data?.error ||
-                "KAIRO API error"
+                data.error || "API request failed"
             );
+
         }
 
-
-        const reply =
-            data?.reply;
-
-
-        if (!reply) {
+        if (!data.reply) {
 
             throw new Error(
-                "No AI reply received"
+                "No reply received"
             );
-        }
 
+        }
 
         addMessage(
             "assistant",
-            reply
+            data.reply
         );
-
 
         saveConversation(
             message,
-            reply
+            data.reply
         );
 
-
         setStatus("Ready");
-
-
-        // IMPORTANT:
-        // Only speak when user used microphone.
-        if (shouldSpeakReply) {
-
-            speakText(reply);
-
-        }
-
 
     } catch (error) {
 
         console.error(
-            "KAIRO error:",
+            "KAIRO ERROR:",
             error
         );
 
-
-        const errorText =
-            "Sorry, KAIRO AI connection-e ekta problem hoyeche. Ektu pore abar try koro.";
-
-
         addMessage(
             "assistant",
-            errorText
+            "KAIRO connection-e problem hoyeche. Ektu pore abar try koro."
         );
 
-
-        setStatus("Connection problem");
-
-
-        if (shouldSpeakReply) {
-            speakText(errorText);
-        }
-
-
-    } finally {
-
-        sendButton.disabled = false;
-
-        messageInput.focus();
+        setStatus("Connection error");
 
     }
+
+    if (sendButton) {
+        sendButton.disabled = false;
+    }
+
+    if (micButton) {
+        micButton.disabled = false;
+    }
+
+    messageInput.focus();
 }
 
 
-// ======================================================
-// ENTER KEY
-// ======================================================
+// =====================================================
+// SEND BUTTON
+// =====================================================
 
-messageInput.addEventListener(
-    "keydown",
-    function(event) {
+if (sendButton) {
 
-        if (
-            event.key === "Enter" &&
-            !event.shiftKey
-        ) {
-
-            event.preventDefault();
-
+    sendButton.addEventListener(
+        "click",
+        function () {
             sendMessage();
+        }
+    );
+
+}
+
+
+// =====================================================
+// ENTER TO SEND
+// =====================================================
+
+if (messageInput) {
+
+    messageInput.addEventListener(
+        "keydown",
+        function (event) {
+
+            if (
+                event.key === "Enter" &&
+                !event.shiftKey
+            ) {
+
+                event.preventDefault();
+
+                sendMessage();
+
+            }
 
         }
-
-    }
-);
+    );
 
 
-// ======================================================
-// AUTO RESIZE TEXTAREA
-// ======================================================
+    messageInput.addEventListener(
+        "input",
+        function () {
 
-messageInput.addEventListener(
-    "input",
-    function() {
+            this.style.height = "auto";
 
-        this.style.height = "auto";
+            this.style.height =
+                Math.min(
+                    this.scrollHeight,
+                    140
+                ) + "px";
 
-        this.style.height =
-            Math.min(
-                this.scrollHeight,
-                140
-            ) + "px";
+        }
+    );
 
-    }
-);
+}
 
 
-// ======================================================
-// SEND BUTTON
-// ======================================================
+// =====================================================
+// VOICE INPUT
+// =====================================================
 
-sendButton.addEventListener(
-    "click",
-    function() {
+let recognition = null;
+let listening = false;
 
-        lastInputWasVoice = false;
-
-        sendMessage();
-
-    }
-);
-
-
-// ======================================================
-// VOICE RECOGNITION
-// ======================================================
-
-function setupRecognition() {
+function setupVoice() {
 
     const SpeechRecognition =
         window.SpeechRecognition ||
         window.webkitSpeechRecognition;
 
-
     if (!SpeechRecognition) {
-
-        console.log(
-            "Speech recognition is not supported."
-        );
-
-        return;
-
+        return false;
     }
 
+    recognition = new SpeechRecognition();
 
-    recognition =
-        new SpeechRecognition();
-
+    recognition.lang = "bn-BD";
 
     recognition.continuous = false;
 
     recognition.interimResults = false;
 
-    recognition.lang = "bn-BD";
+    recognition.maxAlternatives = 1;
 
 
-    recognition.onstart = function() {
+    recognition.onstart = function () {
 
-        isListening = true;
+        listening = true;
 
-        micButton.classList.add(
-            "listening"
-        );
+        if (micButton) {
+            micButton.classList.add("listening");
+        }
 
         setStatus("Listening...");
 
     };
 
 
-    recognition.onresult = function(event) {
+    recognition.onresult = function (event) {
 
-        const result =
+        const text =
             event.results[0][0].transcript;
 
+        if (!text) return;
 
-        if (!result) {
-            return;
-        }
-
-
-        messageInput.value = result;
+        messageInput.value = text;
 
         messageInput.dispatchEvent(
             new Event("input")
         );
 
+        setStatus("Processing...");
 
-        // Mark this message as voice input
-        lastInputWasVoice = true;
-
-
-        // Automatically send voice message
         setTimeout(
-            sendMessage,
-            250
+            function () {
+                sendMessage();
+            },
+            200
         );
 
     };
 
 
-    recognition.onerror = function(event) {
+    recognition.onerror = function (event) {
 
         console.log(
-            "Speech recognition error:",
+            "Voice error:",
             event.error
-        );
-
-        isListening = false;
-
-        micButton.classList.remove(
-            "listening"
         );
 
         setStatus("Ready");
@@ -513,541 +433,100 @@ function setupRecognition() {
     };
 
 
-    recognition.onend = function() {
+    recognition.onend = function () {
 
-        isListening = false;
+        listening = false;
 
-        micButton.classList.remove(
-            "listening"
-        );
+        if (micButton) {
+            micButton.classList.remove("listening");
+        }
 
         if (
             statusEl &&
-            statusEl.textContent ===
-                "Listening..."
+            statusEl.textContent === "Listening..."
         ) {
-
             setStatus("Ready");
-
         }
 
     };
 
+    return true;
 }
 
 
-// ======================================================
-// MICROPHONE BUTTON
-// ======================================================
+if (micButton) {
 
-micButton.addEventListener(
-    "click",
-    function() {
+    micButton.addEventListener(
+        "click",
+        function () {
 
-        if (!recognition) {
+            if (!recognition) {
 
-            setupRecognition();
+                const ready = setupVoice();
 
-        }
+                if (!ready) {
 
+                    alert(
+                        "Ei browser-e voice input support nei."
+                    );
 
-        if (!recognition) {
+                    return;
+                }
 
-            alert(
-                "Voice input ei browser/device-e support korche na."
-            );
+            }
 
-            return;
+            if (listening) {
 
-        }
+                recognition.stop();
 
+                return;
 
-        if (isListening) {
+            }
 
-            recognition.stop();
+            try {
 
-            return;
+                recognition.start();
 
-        }
+            } catch (error) {
 
-
-        try {
-
-            recognition.lang =
-                detectSpeechLanguage(
-                    messageInput.value
+                console.log(
+                    "Voice start error:",
+                    error
                 );
-
-
-            recognition.start();
-
-        } catch (error) {
-
-            console.log(
-                "Recognition start error:",
-                error
-            );
-
-        }
-
-    }
-);
-
-
-// ======================================================
-// LANGUAGE DETECTION FOR VOICE
-// ======================================================
-
-function detectSpeechLanguage(text) {
-
-    const value =
-        (text || "").toLowerCase();
-
-
-    // Bangla characters
-    if (
-        /[\u0980-\u09FF]/.test(value)
-    ) {
-
-        return "bn-BD";
-
-    }
-
-
-    // Hindi / Devanagari
-    if (
-        /[\u0900-\u097F]/.test(value)
-    ) {
-
-        return "hi-IN";
-
-    }
-
-
-    // Banglish usually contains common Bangla
-    // transliteration words.
-    const banglishWords = [
-        "ami",
-        "amar",
-        "tumi",
-        "tomar",
-        "kemon",
-        "ki",
-        "keno",
-        "kivabe",
-        "korbo",
-        "hobe",
-        "ache",
-        "nai",
-        "bhai",
-        "bujhi",
-        "bujhte",
-        "ekhon",
-        "ajke",
-        "kalke",
-        "valo",
-        "bhalo"
-    ];
-
-
-    const words =
-        value.split(/\s+/);
-
-
-    const banglishScore =
-        words.filter(
-            word =>
-                banglishWords.includes(
-                    word.replace(
-                        /[^a-z]/g,
-                        ""
-                    )
-                )
-        ).length;
-
-
-    if (banglishScore >= 1) {
-
-        return "bn-BD";
-
-    }
-
-
-    return "en-US";
-
-}
-
-
-// ======================================================
-// HIGHER QUALITY BROWSER VOICE
-// ======================================================
-
-function getBestVoice(language) {
-
-    if (
-        !("speechSynthesis" in window)
-    ) {
-
-        return null;
-
-    }
-
-
-    const voices =
-        speechSynthesis.getVoices();
-
-
-    if (!voices.length) {
-
-        return null;
-
-    }
-
-
-    const target =
-        language.toLowerCase();
-
-
-    const exact =
-        voices.filter(
-            voice =>
-                voice.lang &&
-                voice.lang.toLowerCase() === target
-        );
-
-
-    if (exact.length) {
-
-        return exact[0];
-
-    }
-
-
-    const base =
-        target.split("-")[0];
-
-
-    const sameLanguage =
-        voices.filter(
-            voice =>
-                voice.lang &&
-                voice.lang
-                    .toLowerCase()
-                    .startsWith(base)
-        );
-
-
-    if (sameLanguage.length) {
-
-        return sameLanguage[0];
-
-    }
-
-
-    return voices[0];
-
-}
-
-
-// ======================================================
-// DETECT REPLY LANGUAGE
-// ======================================================
-
-function detectReplyLanguage(text) {
-
-    if (!text) {
-        return "en-US";
-    }
-
-
-    const banglaCharacters =
-        (text.match(
-            /[\u0980-\u09FF]/g
-        ) || []).length;
-
-
-    const hindiCharacters =
-        (text.match(
-            /[\u0900-\u097F]/g
-        ) || []).length;
-
-
-    if (banglaCharacters > 3) {
-        return "bn-BD";
-    }
-
-
-    if (hindiCharacters > 3) {
-        return "hi-IN";
-    }
-
-
-    // Check common Banglish words
-    const lower =
-        text.toLowerCase();
-
-
-    const banglishWords = [
-        "ami",
-        "tumi",
-        "apni",
-        "amar",
-        "tomar",
-        "bhai",
-        "bujhte",
-        "koro",
-        "korbo",
-        "hobe",
-        "ache",
-        "nai",
-        "ekhon",
-        "karon",
-        "valo",
-        "bhalo"
-    ];
-
-
-    let score = 0;
-
-
-    banglishWords.forEach(
-        word => {
-
-            if (
-                lower.includes(
-                    word
-                )
-            ) {
-
-                score++;
 
             }
 
         }
     );
 
-
-    if (score >= 1) {
-        return "bn-BD";
-    }
-
-
-    return "en-US";
-
 }
 
 
-// ======================================================
-// SPEAK TEXT
-// ======================================================
+// =====================================================
+// HISTORY
+// =====================================================
 
-function speakText(text) {
+function renderHistory(search = "") {
 
-    if (
-        !("speechSynthesis" in window)
-    ) {
-
-        return;
-
-    }
-
-
-    if (!text) {
-        return;
-    }
-
-
-    speechSynthesis.cancel();
-
-
-    const language =
-        detectReplyLanguage(text);
-
-
-    const voice =
-        getBestVoice(language);
-
-
-    // Clean markdown a little for natural speech
-    const cleanText =
-        text
-            .replace(
-                /```[\s\S]*?```/g,
-                ""
-            )
-            .replace(
-                /[*_#>`]/g,
-                ""
-            )
-            .replace(
-                /\[([^\]]+)\]\([^)]+\)/g,
-                "$1"
-            )
-            .trim();
-
-
-    const utterance =
-        new SpeechSynthesisUtterance(
-            cleanText
-        );
-
-
-    utterance.lang =
-        language;
-
-
-    if (voice) {
-
-        utterance.voice =
-            voice;
-
-    }
-
-
-    // Natural speaking settings
-    utterance.rate = 0.92;
-
-    utterance.pitch = 1.0;
-
-    utterance.volume = 1.0;
-
-
-    utterance.onstart =
-        function() {
-
-            setStatus("Speaking...");
-
-        };
-
-
-    utterance.onend =
-        function() {
-
-            setStatus("Ready");
-
-        };
-
-
-    utterance.onerror =
-        function() {
-
-            setStatus("Ready");
-
-        };
-
-
-    speechSynthesis.speak(
-        utterance
-    );
-
-}
-
-
-// Load voices when Android provides them
-if (
-    "speechSynthesis" in window
-) {
-
-    speechSynthesis.onvoiceschanged =
-        function() {
-
-            speechSynthesis.getVoices();
-
-        };
-
-}
-
-
-// ======================================================
-// HISTORY PANEL
-// ======================================================
-
-function openHistoryPanel() {
-
-    historyPanel.classList.add(
-        "open"
-    );
-
-    historyBackdrop.classList.add(
-        "show"
-    );
-
-    historyPanel.setAttribute(
-        "aria-hidden",
-        "false"
-    );
-
-    renderHistory();
-
-}
-
-
-function closeHistoryPanel() {
-
-    historyPanel.classList.remove(
-        "open"
-    );
-
-    historyBackdrop.classList.remove(
-        "show"
-    );
-
-    historyPanel.setAttribute(
-        "aria-hidden",
-        "true"
-    );
-
-}
-
-
-historyButton.addEventListener(
-    "click",
-    openHistoryPanel
-);
-
-
-closeHistory.addEventListener(
-    "click",
-    closeHistoryPanel
-);
-
-
-historyBackdrop.addEventListener(
-    "click",
-    closeHistoryPanel
-);
-
-
-// ======================================================
-// RENDER HISTORY
-// ======================================================
-
-function renderHistory(
-    searchTerm = ""
-) {
+    if (!historyList) return;
 
     const term =
-        searchTerm
-            .trim()
-            .toLowerCase();
+        String(search).toLowerCase().trim();
 
-
-    const filtered =
+    const list =
         conversations
             .slice()
             .reverse()
             .filter(item => {
 
-                if (!term) {
-                    return true;
-                }
-
+                if (!term) return true;
 
                 return (
-                    item.user
+                    String(item.user || "")
                         .toLowerCase()
                         .includes(term) ||
-                    item.assistant
+
+                    String(item.assistant || "")
                         .toLowerCase()
                         .includes(term)
                 );
@@ -1055,62 +534,47 @@ function renderHistory(
             });
 
 
-    if (!filtered.length) {
+    if (!list.length) {
 
         historyList.innerHTML = `
             <div class="empty-history">
                 <div class="empty-icon">◷</div>
-                <h3>No conversations found</h3>
-                <p>Your matching conversations will appear here.</p>
+                <h3>No conversations yet</h3>
+                <p>Your future conversations will appear here.</p>
             </div>
         `;
 
         return;
-
     }
 
 
     historyList.innerHTML = "";
 
 
-    filtered.forEach(item => {
+    list.forEach(item => {
 
         const card =
-            document.createElement(
-                "div"
-            );
+            document.createElement("div");
 
-
-        card.className =
-            "history-item";
+        card.className = "history-item";
 
 
         const user =
-            document.createElement(
-                "div"
-            );
+            document.createElement("div");
 
-
-        user.className =
-            "history-user";
-
+        user.className = "history-user";
 
         user.textContent =
-            item.user;
+            item.user || "";
 
 
         const answer =
-            document.createElement(
-                "div"
-            );
+            document.createElement("div");
 
-
-        answer.className =
-            "history-answer";
-
+        answer.className = "history-answer";
 
         answer.textContent =
-            item.assistant;
+            item.assistant || "";
 
 
         card.appendChild(user);
@@ -1120,11 +584,9 @@ function renderHistory(
 
         card.addEventListener(
             "click",
-            function() {
+            function () {
 
                 closeHistoryPanel();
-
-                removeWelcome();
 
                 addMessage(
                     "user",
@@ -1147,28 +609,118 @@ function renderHistory(
 }
 
 
-// ======================================================
-// HISTORY SEARCH
-// ======================================================
+function openHistoryPanel() {
 
-historySearch.addEventListener(
-    "input",
-    function() {
+    if (!historyPanel) return;
 
-        renderHistory(
-            this.value
+    historyPanel.classList.add("open");
+
+    if (historyBackdrop) {
+        historyBackdrop.classList.add("show");
+    }
+
+    historyPanel.setAttribute(
+        "aria-hidden",
+        "false"
+    );
+
+    renderHistory();
+
+}
+
+
+function closeHistoryPanel() {
+
+    if (historyPanel) {
+
+        historyPanel.classList.remove("open");
+
+        historyPanel.setAttribute(
+            "aria-hidden",
+            "true"
         );
 
     }
+
+    if (historyBackdrop) {
+        historyBackdrop.classList.remove("show");
+    }
+
+}
+
+
+if (historyButton) {
+
+    historyButton.addEventListener(
+        "click",
+        openHistoryPanel
+    );
+
+}
+
+
+if (closeHistory) {
+
+    closeHistory.addEventListener(
+        "click",
+        closeHistoryPanel
+    );
+
+}
+
+
+if (historyBackdrop) {
+
+    historyBackdrop.addEventListener(
+        "click",
+        closeHistoryPanel
+    );
+
+}
+
+
+if (historySearch) {
+
+    historySearch.addEventListener(
+        "input",
+        function () {
+
+            renderHistory(
+                this.value
+            );
+
+        }
+    );
+
+}
+
+
+// =====================================================
+// FLOATING KAIRO
+// =====================================================
+
+if (floatingKairo) {
+
+    floatingKairo.addEventListener(
+        "click",
+        function () {
+
+            if (messageInput) {
+                messageInput.focus();
+            }
+
+        }
+    );
+
+}
+
+
+// =====================================================
+// START
+// =====================================================
+
+setStatus("Ready");
+
+console.log(
+    "KAIRO app.js loaded successfully."
 );
-
-
-// ======================================================
-// FLOATING KAIRO BUTTON
-// ======================================================
-
-floatingKairo.addEventListener(
-    "click",
-    function() {
-
-  
