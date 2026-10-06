@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -30,16 +31,19 @@
 
         </div>
 
+
         <div class="top-actions">
 
             <button
                 id="historyButton"
-                class="top-button"
+                class="top-button history-button"
                 type="button"
                 aria-label="History"
             >
                 <span class="history-icon">◷</span>
+                <span>History</span>
             </button>
+
 
             <div id="status" class="status">
                 Ready
@@ -61,7 +65,9 @@
 
             <h2>Hello, I'm KAIRO</h2>
 
-            <p>Your AI companion is ready.</p>
+            <p>
+                Your AI companion is ready.
+            </p>
 
             <p class="small-text">
                 Ask me anything or talk to me.
@@ -85,7 +91,7 @@
             ></textarea>
 
 
-            <!-- MODERN MIC -->
+            <!-- MIC -->
             <button
                 id="micButton"
                 class="icon-button mic-button"
@@ -157,7 +163,6 @@
 
 
     <!-- HISTORY PANEL -->
-
     <aside
         id="historyPanel"
         class="history-panel"
@@ -167,12 +172,15 @@
         <div class="history-header">
 
             <div>
+
                 <h2>History</h2>
 
                 <span>
                     Your conversations
                 </span>
+
             </div>
+
 
             <button
                 id="closeHistory"
@@ -186,17 +194,26 @@
         </div>
 
 
-        <!-- SEARCH -->
-
+        <!-- HISTORY SEARCH -->
         <div class="history-search">
 
             <svg
                 viewBox="0 0 24 24"
                 class="search-icon"
             >
-                <circle cx="11" cy="11" r="7"></circle>
-                <path d="m16 16 5 5"></path>
+
+                <circle
+                    cx="11"
+                    cy="11"
+                    r="7"
+                ></circle>
+
+                <path
+                    d="m16 16 5 5"
+                ></path>
+
             </svg>
+
 
             <input
                 id="historySearch"
@@ -208,16 +225,18 @@
 
 
         <!-- MEMORY -->
-
         <div class="memory-card">
 
             <div class="memory-symbol">
                 ✦
             </div>
 
+
             <div>
 
-                <strong>Memory</strong>
+                <strong>
+                    Memory
+                </strong>
 
                 <p>
                     KAIRO can remember important things
@@ -230,8 +249,10 @@
 
 
         <!-- HISTORY LIST -->
-
-        <div id="historyList" class="history-list">
+        <div
+            id="historyList"
+            class="history-list"
+        >
 
             <div class="empty-history">
 
@@ -239,7 +260,9 @@
                     ◷
                 </div>
 
-                <h3>No conversations yet</h3>
+                <h3>
+                    No conversations yet
+                </h3>
 
                 <p>
                     Your future conversations will
@@ -254,7 +277,6 @@
 
 
     <!-- HISTORY BACKDROP -->
-
     <div
         id="historyBackdrop"
         class="history-backdrop"
@@ -262,16 +284,14 @@
 
 
     <!-- FLOATING KAIRO -->
-
-   <button
-    id="historyButton"
-    class="top-button history-button"
-    type="button"
-    aria-label="History"
->
-    <span class="history-icon">◷</span>
-    <span>History</span>
-</button>
+    <button
+        id="floatingKairo"
+        class="floating-kairo"
+        type="button"
+        aria-label="Open KAIRO"
+    >
+        K
+    </button>
 
 </div>
 
@@ -279,4 +299,5 @@
 <script src="app.js"></script>
 
 </body>
-</html>
+
+    </html>
