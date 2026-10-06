@@ -2,24 +2,19 @@ export default async function handler(req, res) {
 
     try {
 
-        console.log("KAIRO DIAGNOSTIC START");
-
         if (req.method !== "POST") {
-
-            console.log("METHOD:", req.method);
 
             return res.status(405).json({
                 success: false,
-                error: "Method not allowed",
-                method: req.method
+                error: "Method not allowed"
             });
+
         }
 
         var body = req.body || {};
 
         var message = body.message || "";
-
-        console.log("MESSAGE RECEIVED:", message ? "YES" : "NO");
+        var context = body.context || "";
 
         if (!message) {
 
@@ -27,14 +22,10 @@ export default async function handler(req, res) {
                 success: false,
                 error: "Message is required"
             });
+
         }
 
         var apiKey = process.env.GEMINI_API_KEY;
-
-        console.log(
-            "GEMINI KEY EXISTS:",
-            apiKey ? "YES" : "NO"
-        );
 
         if (!apiKey) {
 
@@ -42,24 +33,60 @@ export default async function handler(req, res) {
                 success: false,
                 error: "GEMINI_API_KEY is missing"
             });
-        }
 
-        console.log(
-            "GEMINI KEY LENGTH:",
-            apiKey.length
-        );
+        }
 
         var cleanApiKey = apiKey.trim();
 
-        console.log("KEY CLEANED: YES");
+        var systemPrompt =
+            "You are KAIRO, a friendly AI companion created for the user.\n\n" +
 
-        var testUrl =
-            "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent";
+            "IDENTITY:\n" +
+            "- Your name is KAIRO.\n" +
+            "- Always identify yourself as KAIRO.\n" +
+            "- Never say that your name is Gemini.\n" +
+            "- Never identify yourself as Google Gemini.\n" +
+            "- Never claim that you were created by Google.\n" +
+            "- Gemini is only the AI model powering you in the background.\n" +
+            "- If the user asks 'What is your name?', answer that your name is KAIRO.\n\n" +
 
-        console.log("ABOUT TO CALL GEMINI");
+            "LANGUAGE:\n" +
+            "- Understand Bangla.\n" +
+            "- Understand Banglish written using English letters.\n" +
+            "- Understand English.\n" +
+            "- Understand Hindi.\n" +
+            "- Understand mixed Bangla, Banglish, English and Hindi.\n" +
+            "- Understand casual slang, shortcuts and imperfect spelling.\n\n" +
+
+            "RESPONSE STYLE:\n" +
+            "- Reply naturally in the language used by the user.\n" +
+            "- If the user uses Banglish, reply naturally in Banglish.\n" +
+            "- If the user uses Bangla, reply in Bangla.\n" +
+            "- If the user uses English, reply in English.\n" +
+            "- If the user uses Hindi, reply naturally in Hindi.\n" +
+            "- Be friendly, natural and conversational.\n" +
+            "- Keep simple questions concise.\n" +
+            "- Do not unnecessarily repeat the user's question.\n" +
+            "- Do not unnecessarily mention AI models, APIs or technical details.\n" +
+            "- Do not give unnecessary safety warnings for normal harmless questions.\n" +
+            "- Never invent information.\n" +
+            "- If you do not know something, honestly say that you do not know.\n\n" +
+
+            "MARKDOWN:\n" +
+            "- You may use simple Markdown when useful.\n" +
+            "- Use bold only when emphasis is actually helpful.\n";
+
+        var userPrompt =
+            "RELEVANT PREVIOUS CONTEXT:\n" +
+            (
+                context ||
+                "No relevant previous context."
+            ) +
+            "\n\nCURRENT USER MESSAGE:\n" +
+            message;
 
         var response = await fetch(
-            testUrl,
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent",
             {
                 method: "POST",
 
@@ -70,11 +97,21 @@ export default async function handler(req, res) {
 
                 body: JSON.stringify({
 
+                    systemInstruction: {
+                        parts: [
+                            {
+                                text: systemPrompt
+                            }
+                        ]
+                    },
+
                     contents: [
                         {
+                            role: "user",
+
                             parts: [
                                 {
-                                    text: message
+                                    text: userPrompt
                                 }
                             ]
                         }
@@ -84,37 +121,54 @@ export default async function handler(req, res) {
             }
         );
 
+        var rawText = await response.text();
+
         console.log(
             "GEMINI STATUS:",
             response.status
         );
-
-        var rawText = await response.text();
 
         console.log(
             "GEMINI RAW:",
             rawText
         );
 
+        var data;
+
+        try {
+
+            data = JSON.parse(rawText);
+
+        } catch (e) {
+
+            data = {
+                error: {
+                    message: rawText
+                }
+            };
+
+        }
+
         if (!response.ok) {
+
+            var errorMessage =
+                data &&
+                data.error &&
+                data.error.message
+                    ? data.error.message
+                    : "Gemini request failed";
 
             return res.status(response.status).json({
 
                 success: false,
 
-                error:
-                    "Gemini API error",
+                error: errorMessage,
 
-                status:
-                    response.status,
-
-                details:
-                    rawText
+                code: response.status
 
             });
-        }
 
-        var data = JSON.parse(rawText);
+        }
 
         var reply =
             data &&
@@ -131,16 +185,11 @@ export default async function handler(req, res) {
 
                 success: false,
 
-                error:
-                    "Gemini returned no reply",
-
-                raw:
-                    rawText
+                error: "Gemini returned no AI reply"
 
             });
-        }
 
-        console.log("GEMINI REPLY RECEIVED");
+        }
 
         return res.status(200).json({
 
@@ -153,7 +202,7 @@ export default async function handler(req, res) {
     } catch (error) {
 
         console.log(
-            "KAIRO DIAGNOSTIC ERROR:",
+            "KAIRO BACKEND ERROR:",
             error
         );
 
@@ -165,10 +214,10 @@ export default async function handler(req, res) {
                 error &&
                 error.message
                     ? error.message
-                    : "Unknown backend error"
+                    : "KAIRO backend error"
 
         });
 
     }
 
-}
+                }
