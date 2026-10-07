@@ -1,1118 +1,178 @@
-const chat = document.getElementById("chat");
-const input = document.getElementById("messageInput");
-const send = document.getElementById("sendButton");
-const mic = document.getElementById("micButton");
+const $=id=>document.getElementById(id);
+const chat=$("chat"),input=$("messageInput"),send=$("sendButton"),mic=$("micButton");
+const historyBtn=$("historyButton"),panel=$("historyPanel"),back=$("historyBackdrop"),list=$("historyList");
+const float=$("floatingKairo"),voiceMode=$("voiceMode"),voiceStatus=$("voiceStatus"),voiceSub=$("voiceSubtitle"),closeVoice=$("closeVoiceButton"),mini=$("miniVoiceButton");
 
-const historyBtn = document.getElementById("historyButton");
-const panel = document.getElementById("historyPanel");
-const back = document.getElementById("historyBackdrop");
-const list = document.getElementById("historyList");
+const HK="kairo_history",MK="kairo_memory";
+let chats=JSON.parse(localStorage.getItem(HK)||"[]");
+let memory=JSON.parse(localStorage.getItem(MK)||"[]");
+let current=chats[0]||null,rec=null,listening=false,voiceOn=false;
 
-const floatingKairo = document.getElementById("floatingKairo");
-const miniVoiceButton = document.getElementById("miniVoiceButton");
-
-const voiceMode = document.getElementById("voiceMode");
-const voiceLogo = document.getElementById("voiceLogo");
-const voiceStatus = document.getElementById("voiceStatus");
-const voiceSubtitle = document.getElementById("voiceSubtitle");
-const closeVoiceButton =
-    document.getElementById("closeVoiceButton");
-
-
-/* =========================================================
-   STORAGE
-========================================================= */
-
-const HISTORY_KEY = "kairo_history";
-const MEMORY_KEY = "kairo_memory";
-
-let chats =
-    JSON.parse(
-        localStorage.getItem(HISTORY_KEY) || "[]"
-    );
-
-let memories =
-    JSON.parse(
-        localStorage.getItem(MEMORY_KEY) || "[]"
-    );
-
-let current = chats[0] || null;
-
-let listening = false;
-let voiceRecognition = null;
-
-
-/* =========================================================
-   SAVE
-========================================================= */
-
-function saveData() {
-
-    localStorage.setItem(
-        HISTORY_KEY,
-        JSON.stringify(chats)
-    );
-
-    localStorage.setItem(
-        MEMORY_KEY,
-        JSON.stringify(memories)
-    );
+function save(){
+ localStorage.setItem(HK,JSON.stringify(chats));
+ localStorage.setItem(MK,JSON.stringify(memory));
 }
 
-
-/* =========================================================
-   NEW CHAT
-========================================================= */
-
-function newChat() {
-
-    current = {
-        id: Date.now(),
-        title: "New Chat",
-        messages: []
-    };
-
-    chats.unshift(current);
-
-    saveData();
-
-    chat.innerHTML = "";
+function newChat(){
+ current={id:Date.now(),title:"New Chat",messages:[]};
+ chats.unshift(current);save();chat.innerHTML="";
 }
 
-
-/* =========================================================
-   CHAT TITLE
-========================================================= */
-
-function getTitle(text) {
-
-    const t = text.toLowerCase();
-
-    if (t.includes("anime"))
-        return "Anime";
-
-    if (
-        t.includes("trading") ||
-        t.includes("trade") ||
-        t.includes("forex")
-    )
-        return "Trading";
-
-    if (
-        t.includes("study") ||
-        t.includes("ssc") ||
-        t.includes("exam") ||
-        t.includes("math") ||
-        t.includes("physics") ||
-        t.includes("chemistry")
-    )
-        return "Study";
-
-    if (
-        t.includes("game") ||
-        t.includes("gaming") ||
-        t.includes("free fire") ||
-        t.includes("efootball")
-    )
-        return "Gaming";
-
-    if (
-        t.includes("code") ||
-        t.includes("coding") ||
-        t.includes("html") ||
-        t.includes("javascript") ||
-        t.includes("app")
-    )
-        return "Coding";
-
-    return text.slice(0, 24) || "New Chat";
+function bubble(t,w){
+ let e=document.createElement("div");
+ e.className="message "+w;e.textContent=t;chat.appendChild(e);
+ chat.scrollTop=chat.scrollHeight;
 }
 
-
-/* =========================================================
-   MESSAGE
-========================================================= */
-
-function bubble(text, who) {
-
-    const element =
-        document.createElement("div");
-
-    element.className =
-        "message " + who;
-
-    element.textContent =
-        text;
-
-    chat.appendChild(element);
-
-    chat.scrollTop =
-        chat.scrollHeight;
+function remember(t){
+ if(/my name is |amar nam |i like |i love |i live in |my favorite |amar favourite |amar favorite /i.test(t)){
+  if(!memory.includes(t)){memory.push(t);save();}
+ }
 }
 
-
-/* =========================================================
-   MEMORY
-========================================================= */
-
-function detectMemory(text) {
-
-    const patterns = [
-        /my name is (.+)/i,
-        /amar nam (.+)/i,
-        /i am (.+)/i,
-        /i live in (.+)/i,
-        /i like (.+)/i,
-        /i love (.+)/i,
-        /my favorite (.+)/i,
-        /amar favourite (.+)/i,
-        /amar favorite (.+)/i
-    ];
-
-    for (const pattern of patterns) {
-
-        const match = text.match(pattern);
-
-        if (match && match[1]) {
-
-            const memory = text.trim();
-
-            if (!memories.includes(memory)) {
-
-                memories.push(memory);
-
-                saveData();
-            }
-
-            break;
-        }
-    }
+function context(){
+ return chats.filter(x=>!current||x.id!=current.id).slice(0,5)
+ .map(x=>x.title+": "+x.messages.slice(-2).map(m=>m.text).join(" | ")).join("\n");
 }
 
-
-function getMemoryText() {
-
-    if (!memories.length)
-        return "No saved memories yet.";
-
-    return memories
-        .map(
-            (memory, index) =>
-                `${index + 1}. ${memory}`
-        )
-        .join("\n");
+function title(t){
+ let x=t.toLowerCase();
+ if(x.includes("anime"))return"Anime";
+ if(/trading|forex|trade/.test(x))return"Trading";
+ if(/ssc|study|exam|math|physics|chemistry/.test(x))return"Study";
+ if(/game|gaming|free fire|efootball/.test(x))return"Gaming";
+ if(/code|coding|html|javascript|app/.test(x))return"Coding";
+ return t.slice(0,24)||"New Chat";
 }
 
+async function ask(text,voice=false){
+ text=text.trim();if(!text)return;
+ if(!current)newChat();
+ if(current.title=="New Chat")current.title=title(text);
+ remember(text);current.messages.push({role:"user",text});bubble(text,"user");
+ if(!voice)input.value="";
 
-/* =========================================================
-   OLD CONTEXT
-========================================================= */
+ let e=document.createElement("div");
+ e.className="message ai";e.textContent="Thinking...";chat.appendChild(e);
 
-function getOldContext() {
+ if(voice){voiceStatus.textContent="Thinking...";voiceSub.textContent="KAIRO is thinking...";}
 
-    return chats
-        .filter(
-            item =>
-                !current ||
-                item.id !== current.id
-        )
-        .slice(0, 5)
-        .map(item => {
+ try{
+  let r=await fetch("/api/api",{
+   method:"POST",headers:{"Content-Type":"application/json"},
+   body:JSON.stringify({message:text,context:context(),memory:memory.join("\n")})
+  });
+  let d=await r.json(),reply=d.reply||"Sorry, I couldn't answer that.";
+  e.remove();current.messages.push({role:"assistant",text:reply});bubble(reply,"ai");save();
 
-            const recent =
-                item.messages
-                    .slice(-2)
-                    .map(message => message.text)
-                    .join(" | ");
-
-            return item.title + ": " + recent;
-        })
-        .join("\n");
+  if(voice&&voiceOn){
+   speak(reply);
+  }
+ }catch(err){
+  console.log(err);e.textContent="Connection problem.";
+  if(voice)voiceStatus.textContent="Connection problem.";
+ }
 }
 
-
-/* =========================================================
-   SEND MESSAGE
-========================================================= */
-
-async function sendMessage(textOverride = null) {
-
-    const text =
-        textOverride !== null
-            ? textOverride.trim()
-            : input.value.trim();
-
-    if (!text)
-        return;
-
-
-    if (!current)
-        newChat();
-
-
-    if (current.title === "New Chat")
-        current.title = getTitle(text);
-
-
-    detectMemory(text);
-
-
-    current.messages.push({
-        role: "user",
-        text: text
-    });
-
-
-    bubble(text, "user");
-
-
-    if (textOverride === null)
-        input.value = "";
-
-
-    const thinking =
-        document.createElement("div");
-
-    thinking.className =
-        "message ai";
-
-    thinking.textContent =
-        "Thinking...";
-
-    chat.appendChild(thinking);
-
-    chat.scrollTop =
-        chat.scrollHeight;
-
-
-    try {
-
-        const response =
-            await fetch(
-                "/api/api",
-                {
-                    method: "POST",
-
-                    headers: {
-                        "Content-Type":
-                            "application/json"
-                    },
-
-                    body:
-                        JSON.stringify({
-                            message: text,
-                            context: getOldContext(),
-                            memory: getMemoryText()
-                        })
-                }
-            );
-
-
-        const data =
-            await response.json();
-
-
-        thinking.remove();
-
-
-        const reply =
-            data.reply ||
-            "Sorry, I couldn't answer that.";
-
-
-        current.messages.push({
-            role: "assistant",
-            text: reply
-        });
-
-
-        bubble(reply, "ai");
-
-        saveData();
-
-
-    } catch (error) {
-
-        console.error(
-            "KAIRO:",
-            error
-        );
-
-        thinking.textContent =
-            "Connection problem.";
-    }
+function speak(text){
+ if(!("speechSynthesis"in window)){startListen();return;}
+ speechSynthesis.cancel();
+ let u=new SpeechSynthesisUtterance(text);
+ let v=speechSynthesis.getVoices().find(x=>x.lang?.toLowerCase().startsWith("bn"))
+      ||speechSynthesis.getVoices().find(x=>x.lang?.toLowerCase().startsWith("en"));
+ if(v){u.voice=v;u.lang=v.lang;}else u.lang="bn-BD";
+ u.rate=.95;u.pitch=1;u.volume=1;
+ voiceStatus.textContent="KAIRO is speaking...";
+ voiceSub.textContent="Listen...";
+ u.onend=()=>{if(voiceOn)setTimeout(startListen,500)};
+ u.onerror=()=>{if(voiceOn)startListen()};
+ speechSynthesis.speak(u);
 }
 
-
-/* =========================================================
-   HISTORY
-========================================================= */
-
-function closePanel() {
-
-    if (panel)
-        panel.setAttribute(
-            "aria-hidden",
-            "true"
-        );
-
-    if (back)
-        back.setAttribute(
-            "aria-hidden",
-            "true"
-        );
+function startListen(){
+ if(!voiceOn||!("webkitSpeechRecognition"in window))return;
+ if(listening)return;
+ rec=new webkitSpeechRecognition();
+ rec.lang="bn-BD";rec.interimResults=false;rec.continuous=false;
+ listening=true;voiceStatus.textContent="Listening...";voiceSub.textContent="Speak naturally";
+ rec.onresult=e=>{
+  listening=false;
+  let t=e.results[0][0].transcript.trim();
+  if(t)ask(t,true);
+ };
+ rec.onerror=()=>{listening=false;if(voiceOn)setTimeout(startListen,500)};
+ rec.onend=()=>{listening=false};
+ try{rec.start()}catch(e){listening=false}
 }
 
-
-function openHistory() {
-
-    if (!list)
-        return;
-
-
-    list.innerHTML = "";
-
-
-    const search =
-        document.createElement("input");
-
-    search.className =
-        "kairo-history-search";
-
-    search.placeholder =
-        "Search chats...";
-
-    list.appendChild(search);
-
-
-    const newButton =
-        document.createElement("button");
-
-    newButton.className =
-        "kairo-history-new";
-
-    newButton.textContent =
-        "+ New Chat";
-
-    list.appendChild(newButton);
-
-
-    const memoryButton =
-        document.createElement("button");
-
-    memoryButton.className =
-        "kairo-history-new";
-
-    memoryButton.textContent =
-        "🧠 Memory";
-
-    list.appendChild(memoryButton);
-
-
-    const box =
-        document.createElement("div");
-
-    list.appendChild(box);
-
-
-    function render(query = "") {
-
-        box.innerHTML = "";
-
-
-        chats
-            .filter(item => {
-
-                const content =
-                    (
-                        item.title +
-                        " " +
-                        item.messages
-                            .map(m => m.text)
-                            .join(" ")
-                    ).toLowerCase();
-
-                return content.includes(
-                    query.toLowerCase()
-                );
-            })
-            .forEach(item => {
-
-                const button =
-                    document.createElement("button");
-
-                button.className =
-                    "kairo-history-card";
-
-                button.textContent =
-                    item.title;
-
-                button.onclick = () =>
-                    loadChat(item.id);
-
-                box.appendChild(button);
-            });
-    }
-
-
-    search.oninput = () =>
-        render(search.value);
-
-
-    newButton.onclick = () => {
-
-        newChat();
-
-        closePanel();
-    };
-
-
-    memoryButton.onclick =
-        openMemory;
-
-
-    render();
-
-
-    panel.setAttribute(
-        "aria-hidden",
-        "false"
-    );
-
-    back.setAttribute(
-        "aria-hidden",
-        "false"
-    );
+function stopListen(){
+ listening=false;
+ if(rec){try{rec.stop()}catch(e){}rec=null}
 }
 
-
-/* =========================================================
-   MEMORY PANEL
-========================================================= */
-
-function openMemory() {
-
-    list.innerHTML = "";
-
-
-    const title =
-        document.createElement("div");
-
-    title.className =
-        "history-title";
-
-    title.textContent =
-        "🧠 KAIRO Memory";
-
-    list.appendChild(title);
-
-
-    const info =
-        document.createElement("div");
-
-    info.className =
-        "history-subtitle";
-
-    info.textContent =
-        "Things KAIRO remembers";
-
-    list.appendChild(info);
-
-
-    memories.forEach(
-        (memory, index) => {
-
-            const row =
-                document.createElement("div");
-
-            row.className =
-                "kairo-history-card";
-
-            row.textContent =
-                memory;
-
-
-            row.onclick = () => {
-
-                if (
-                    confirm(
-                        "Delete this memory?"
-                    )
-                ) {
-
-                    memories.splice(
-                        index,
-                        1
-                    );
-
-                    saveData();
-
-                    openMemory();
-                }
-            };
-
-
-            list.appendChild(row);
-        }
-    );
-
-
-    if (!memories.length) {
-
-        const empty =
-            document.createElement("div");
-
-        empty.className =
-            "history-subtitle";
-
-        empty.style.marginTop =
-            "20px";
-
-        empty.textContent =
-            "No memories saved yet.";
-
-        list.appendChild(empty);
-    }
+function openVoice(){
+ voiceOn=true;voiceMode.classList.add("active");voiceMode.setAttribute("aria-hidden","false");
+ voiceStatus.textContent="Listening...";voiceSub.textContent="Talk to KAIRO";startListen();
 }
 
-
-/* =========================================================
-   LOAD CHAT
-========================================================= */
-
-function loadChat(id) {
-
-    current =
-        chats.find(
-            item => item.id === id
-        );
-
-
-    chat.innerHTML = "";
-
-
-    if (current) {
-
-        current.messages.forEach(
-            message => {
-
-                bubble(
-                    message.text,
-                    message.role === "user"
-                        ? "user"
-                        : "ai"
-                );
-            }
-        );
-    }
-
-
-    closePanel();
+function closeVoiceMode(){
+ voiceOn=false;stopListen();
+ if("speechSynthesis"in window)speechSynthesis.cancel();
+ voiceMode.classList.remove("active");voiceMode.setAttribute("aria-hidden","true");
 }
 
+send.onclick=()=>ask(input.value);
+input.addEventListener("keydown",e=>{
+ if(e.key=="Enter"&&!e.shiftKey){e.preventDefault();ask(input.value)}
+});
 
-/* =========================================================
-   VOICE MODE UI
-========================================================= */
+mic.onclick=()=>{
+ if("webkitSpeechRecognition"in window){
+  let r=new webkitSpeechRecognition();
+  r.lang="bn-BD";r.interimResults=false;r.onresult=e=>ask(e.results[0][0].transcript);
+  r.start();
+ }else alert("Voice recognition unavailable.");
+};
 
-function openVoiceMode() {
+historyBtn.onclick=()=>{
+ list.innerHTML='<button class="kairo-history-new">+ New Chat</button><button class="kairo-history-new">🧠 Memory</button>';
+ chats.forEach(x=>{
+  let b=document.createElement("button");b.className="kairo-history-card";b.textContent=x.title;
+  b.onclick=()=>{current=x;chat.innerHTML="";x.messages.forEach(m=>bubble(m.text,m.role=="user"?"user":"ai"));panel.setAttribute("aria-hidden","true");back.setAttribute("aria-hidden","true")};
+  list.appendChild(b);
+ });
+ list.children[0].onclick=()=>{newChat();panel.setAttribute("aria-hidden","true");back.setAttribute("aria-hidden","true")};
+ list.children[1].onclick=()=>alert(memory.length?memory.join("\n"):"No memories yet.");
+ panel.setAttribute("aria-hidden","false");back.setAttribute("aria-hidden","false");
+};
 
-    if (!voiceMode)
-        return;
+back.onclick=()=>{panel.setAttribute("aria-hidden","true");back.setAttribute("aria-hidden","true")};
+closeVoice.onclick=closeVoiceMode;
+voiceMode.onclick=e=>{if(e.target===voiceMode)closeVoiceMode()};
+mini.onclick=openVoice;
 
-
-    voiceMode.classList.add("active");
-
-    voiceMode.setAttribute(
-        "aria-hidden",
-        "false"
-    );
-
-
-    if (voiceStatus)
-        voiceStatus.textContent =
-            "Listening...";
-
-
-    if (voiceSubtitle)
-        voiceSubtitle.textContent =
-            "Talk to KAIRO";
-
-
-    startVoiceListening();
+/* KAIRO DRAG */
+if(float){
+ let down=false,moved=false,sx,sy,l,t;
+ float.style.touchAction="none";
+ float.onpointerdown=e=>{
+  let r=float.getBoundingClientRect();down=true;moved=false;
+  sx=e.clientX;sy=e.clientY;l=r.left;t=r.top;
+  float.style.left=l+"px";float.style.top=t+"px";float.style.right="auto";float.style.bottom="auto";
+  float.setPointerCapture(e.pointerId);
+ };
+ float.onpointermove=e=>{
+  if(!down)return;
+  let x=Math.max(0,Math.min(innerWidth-float.offsetWidth,l+e.clientX-sx));
+  let y=Math.max(0,Math.min(innerHeight-float.offsetHeight,t+e.clientY-sy));
+  if(Math.abs(e.clientX-sx)>4||Math.abs(e.clientY-sy)>4)moved=true;
+  float.style.left=x+"px";float.style.top=y+"px";
+ };
+ float.onpointerup=e=>{
+  down=false;try{float.releasePointerCapture(e.pointerId)}catch(x){}
+  if(!moved)openVoice();
+ };
 }
 
-
-function closeVoiceMode() {
-
-    stopVoiceListening();
-
-
-    if (!voiceMode)
-        return;
-
-
-    voiceMode.classList.remove(
-        "active"
-    );
-
-
-    voiceMode.setAttribute(
-        "aria-hidden",
-        "true"
-    );
-}
-
-
-/* =========================================================
-   VOICE LISTENING
-========================================================= */
-
-function startVoiceListening() {
-
-    if (
-        !(
-            "webkitSpeechRecognition"
-            in window
-        )
-    ) {
-
-        if (voiceStatus)
-            voiceStatus.textContent =
-                "Voice recognition unavailable.";
-
-        return;
-    }
-
-
-    if (listening)
-        return;
-
-
-    voiceRecognition =
-        new webkitSpeechRecognition();
-
-
-    voiceRecognition.lang =
-        "bn-BD";
-
-
-    voiceRecognition.interimResults =
-        false;
-
-
-    voiceRecognition.continuous =
-        false;
-
-
-    listening = true;
-
-
-    if (voiceStatus)
-        voiceStatus.textContent =
-            "Listening...";
-
-
-    voiceRecognition.onresult =
-        event => {
-
-            const spokenText =
-                event
-                    .results[0][0]
-                    .transcript
-                    .trim();
-
-
-            if (!spokenText)
-                return;
-
-
-            if (voiceStatus)
-                voiceStatus.textContent =
-                    "Thinking...";
-
-
-            sendMessage(
-                spokenText
-            );
-        };
-
-
-    voiceRecognition.onerror =
-        error => {
-
-            console.log(
-                "Voice error:",
-                error
-            );
-
-            listening = false;
-
-
-            if (voiceStatus)
-                voiceStatus.textContent =
-                    "Ready";
-        };
-
-
-    voiceRecognition.onend =
-        () => {
-
-            listening = false;
-        };
-
-
-    voiceRecognition.start();
-}
-
-
-function stopVoiceListening() {
-
-    listening = false;
-
-
-    if (voiceRecognition) {
-
-        try {
-            voiceRecognition.stop();
-        } catch (error) {}
-
-        voiceRecognition = null;
-    }
-}
-
-
-/* =========================================================
-   NORMAL MIC
-========================================================= */
-
-if (mic) {
-
-    mic.onclick = () => {
-
-        if (
-            !(
-                "webkitSpeechRecognition"
-                in window
-            )
-        ) {
-
-            alert(
-                "Voice recognition is not supported."
-            );
-
-            return;
-        }
-
-
-        if (listening)
-            return;
-
-
-        const recognition =
-            new webkitSpeechRecognition();
-
-
-        recognition.lang =
-            "bn-BD";
-
-
-        recognition.interimResults =
-            false;
-
-
-        recognition.continuous =
-            false;
-
-
-        listening = true;
-
-
-        recognition.onresult =
-            event => {
-
-                input.value =
-                    event
-                        .results[0][0]
-                        .transcript;
-
-                sendMessage();
-            };
-
-
-        recognition.onerror =
-            () => {
-
-                listening = false;
-            };
-
-
-        recognition.onend =
-            () => {
-
-                listening = false;
-            };
-
-
-        recognition.start();
-    };
-}
-
-
-/* =========================================================
-   BUTTONS
-========================================================= */
-
-if (send)
-    send.onclick =
-        () => sendMessage();
-
-
-if (historyBtn)
-    historyBtn.onclick =
-        openHistory;
-
-
-if (back)
-    back.onclick =
-        closePanel;
-
-
-if (closeVoiceButton)
-    closeVoiceButton.onclick =
-        closeVoiceMode;
-
-
-if (voiceLogo)
-    voiceLogo.onclick =
-        closeVoiceMode;
-
-
-if (miniVoiceButton)
-    miniVoiceButton.onclick =
-        openVoiceMode;
-
-
-/* =========================================================
-   ENTER
-========================================================= */
-
-if (input) {
-
-    input.addEventListener(
-        "keydown",
-        event => {
-
-            if (
-                event.key === "Enter" &&
-                !event.shiftKey
-            ) {
-
-                event.preventDefault();
-
-                sendMessage();
-            }
-        }
-    );
-}
-
-
-/* =========================================================
-   DRAGGABLE KAIRO BUBBLE
-========================================================= */
-
-if (floatingKairo) {
-
-    let dragging = false;
-
-    let moved = false;
-
-    let startX = 0;
-    let startY = 0;
-
-    let startLeft = 0;
-    let startTop = 0;
-
-
-    floatingKairo.style.touchAction =
-        "none";
-
-
-    floatingKairo.style.userSelect =
-        "none";
-
-
-    floatingKairo.addEventListener(
-        "pointerdown",
-        event => {
-
-            event.preventDefault();
-
-
-            const rect =
-                floatingKairo.getBoundingClientRect();
-
-
-            dragging = true;
-
-            moved = false;
-
-
-            startX =
-                event.clientX;
-
-            startY =
-                event.clientY;
-
-
-            startLeft =
-                rect.left;
-
-            startTop =
-                rect.top;
-
-
-            floatingKairo.style.left =
-                rect.left + "px";
-
-            floatingKairo.style.top =
-                rect.top + "px";
-
-            floatingKairo.style.right =
-                "auto";
-
-            floatingKairo.style.bottom =
-                "auto";
-
-
-            floatingKairo.setPointerCapture(
-                event.pointerId
-            );
-        }
-    );
-
-
-    floatingKairo.addEventListener(
-        "pointermove",
-        event => {
-
-            if (!dragging)
-                return;
-
-
-            event.preventDefault();
-
-
-            const dx =
-                event.clientX - startX;
-
-            const dy =
-                event.clientY - startY;
-
-
-            if (
-                Math.abs(dx) > 4 ||
-                Math.abs(dy) > 4
-            ) {
-
-                moved = true;
-            }
-
-
-            const maxX =
-                window.innerWidth -
-                floatingKairo.offsetWidth;
-
-
-            const maxY =
-                window.innerHeight -
-                floatingKairo.offsetHeight;
-
-
-            let x =
-                startLeft + dx;
-
-            let y =
-                startTop + dy;
-
-
-            x =
-                Math.max(
-                    0,
-                    Math.min(maxX, x)
-                );
-
-
-            y =
-                Math.max(
-                    0,
-                    Math.min(maxY, y)
-                );
-
-
-            floatingKairo.style.left =
-                x + "px";
-
-            floatingKairo.style.top =
-                y + "px";
-
-            floatingKairo.style.right =
-                "auto";
-
-            floatingKairo.style.bottom =
-                "auto";
-        }
-    );
-
-
-    floatingKairo.addEventListener(
-        "pointerup",
-        event => {
-
-            if (!dragging)
-                return;
-
-
-            dragging = false;
-
-
-            try {
-
-                floatingKairo.releasePointerCapture(
-                    event.pointerId
-                );
-
-            } catch (error) {}
-
-
-            if (!moved) {
-
-                openVoiceMode();
-            }
-        }
-    );
-
-
-    floatingKairo.addEventListener(
-        "pointercancel",
-        () => {
-
-            dragging = false;
-        }
-    );
-}
-
-
-/* =========================================================
-   START
-========================================================= */
-
-if (chats.length) {
-
-    current = chats[0];
-}
-
-
-console.log(
-    "KAIRO Voice Mode ready."
-);
+if(chats.length)current=chats[0];
+console.log("KAIRO ready");
