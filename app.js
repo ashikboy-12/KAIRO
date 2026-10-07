@@ -1,4 +1,5 @@
 const $=id=>document.getElementById(id);
+
 const chat=$("chat"),input=$("messageInput"),send=$("sendButton"),mic=$("micButton");
 const voice=$("voiceMode"),status=$("voiceStatus"),sub=$("voiceSubtitle"),closeV=$("closeVoiceButton");
 const mini=$("miniVoiceButton"),floating=$("floatingKairo");
@@ -26,16 +27,11 @@ function newSession(){
   sessions.push(s);current=s.id;save();return s;
 }
 
-function session(){
-  return sessions.find(x=>x.id===current);
-}
+function session(){return sessions.find(x=>x.id===current)}
+function ensure(){return session()||newSession()}
 
-function ensure(){
-  return session()||newSession();
-}
-
-function clean(text){
-  return String(text||"")
+function clean(t){
+  return String(t||"")
     .replace(/```[\s\S]*?```/g,"")
     .replace(/^\s*#{1,6}\s*/gm,"")
     .replace(/\*\*(.*?)\*\*/g,"$1")
@@ -85,9 +81,9 @@ function renderChat(){
 }
 
 function related(text){
-  const words=text.toLowerCase().split(/\s+/).filter(x=>x.length>2);
+  const w=text.toLowerCase().split(/\s+/).filter(x=>x.length>2);
   return sessions.flatMap(s=>s.messages)
-    .filter(m=>words.some(w=>m.text.toLowerCase().includes(w)))
+    .filter(m=>w.some(x=>m.text.toLowerCase().includes(x)))
     .slice(-12);
 }
 
@@ -95,12 +91,13 @@ function related(text){
 
 function autoMemory(text){
   const t=text.trim();
-  const low=t.toLowerCase();
-
   let value="";
 
-  if(/মনে রাখ|মনে রাখবে|remember|save this/i.test(low)){
-    value=t.replace(/^(kairo[,\s]*)?(মনে রাখবে?|মনে রাখ|remember|save this)\s*[:,-]?\s*/i,"").trim();
+  if(/মনে রাখ|মনে রাখবে|remember|save this/i.test(t)){
+    value=t.replace(
+      /^(kairo[,\s]*)?(মনে রাখবে?|মনে রাখ|remember|save this)\s*[:,-]?\s*/i,
+      ""
+    ).trim();
   }
 
   const name=t.match(/(?:আমার নাম|my name is)\s+(.+)/i);
@@ -111,30 +108,36 @@ function autoMemory(text){
   if(!memory.some(x=>x.text.toLowerCase()===value.toLowerCase())){
     memory.push({id:uid(),text:value,time:Date.now()});
     save();
-    renderMemory();
   }
+
+  renderMemory();
 }
 
 function renderMemory(){
   if(!ml)return;
+
   ml.innerHTML="";
 
-  if(!memory.length){
-    ml.innerHTML=`<div class="memory-item">KAIRO এখনো কোনো saved memory রাখেনি।</div>`;
-    return;
-  }
+  if(memory.length){
+    memory.slice().reverse().forEach(x=>{
+      const d=document.createElement("div");
+      d.className="memory-item";
+      d.innerHTML=`<span></span><button class="memory-delete" type="button">×</button>`;
+      d.querySelector("span").textContent=x.text;
 
-  memory.slice().reverse().forEach(x=>{
-    const d=document.createElement("div");
-    d.className="memory-item";
-    d.innerHTML=`<span></span><button class="memory-delete" type="button">×</button>`;
-    d.querySelector("span").textContent=x.text;
-    d.querySelector("button").onclick=()=>{
-      memory=memory.filter(m=>m.id!==x.id);
-      save();renderMemory();
-    };
-    ml.appendChild(d);
-  });
+      d.querySelector("button").onclick=()=>{
+        memory=memory.filter(m=>m.id!==x.id);
+        save();
+        renderMemory();
+      };
+
+      ml.appendChild(d);
+    });
+  }else{
+    ml.innerHTML=`<div class="memory-item">
+      No saved memory yet.
+    </div>`;
+  }
 }
 
 /* CHAT */
@@ -143,10 +146,13 @@ async function ask(text,speak=false){
   text=String(text||"").trim();
   if(!text||busy)return;
 
-  busy=true;send.disabled=true;
+  busy=true;
+  send.disabled=true;
+
   autoMemory(text);
 
-  if(voiceMode)startListening(true);
+  if(voiceMode)abortListen();
+
   add(text,true);
 
   try{
@@ -168,6 +174,7 @@ async function ask(text,speak=false){
     add(reply,false);
 
     if(speak&&voiceMode)speakText(reply);
+
   }catch(e){
     add("Connection problem. আবার চেষ্টা করো।",false);
   }
@@ -177,8 +184,6 @@ async function ask(text,speak=false){
 
   if(voiceMode&&!speaking)restartListening(300);
 }
-
-/* NORMAL CHAT */
 
 send.onclick=()=>{
   const t=input.value.trim();
@@ -220,15 +225,15 @@ function abortListen(){
   mic?.classList.remove("listening");
 }
 
-function startListening(allowSpeaking=false){
-  if(!recognition||!voiceMode||busy&&!allowSpeaking||listening)return;
+function startListening(){
+  if(!recognition||!voiceMode||busy||speaking||listening)return;
   try{recognition.start()}catch(e){}
 }
 
 function restartListening(delay=350){
   clearTimeout(restartTimer);
   restartTimer=setTimeout(()=>{
-    if(voiceMode&&!listening)startListening(speaking);
+    if(voiceMode&&!busy&&!speaking&&!listening)startListening();
   },delay);
 }
 
@@ -241,7 +246,7 @@ if(SR){
   recognition.onstart=()=>{
     listening=true;
     mic?.classList.add("listening");
-    if(status&&!speaking)status.textContent="Listening...";
+    if(status)status.textContent="Listening...";
   };
 
   recognition.onresult=e=>{
@@ -249,17 +254,7 @@ if(SR){
     listening=false;
     mic?.classList.remove("listening");
 
-    if(!t){
-      restartListening();
-      return;
-    }
-
-    /* During KAIRO speech, only stop commands are accepted */
-    if(speaking){
-      if(stopWords(t))stopSpeaking();
-      else restartListening(100);
-      return;
-    }
+    if(!t)return restartListening();
 
     if(stopWords(t)){
       stopSpeaking();
@@ -276,7 +271,7 @@ if(SR){
   recognition.onend=()=>{
     listening=false;
     mic?.classList.remove("listening");
-    if(voiceMode)restartListening(speaking?120:350);
+    if(voiceMode&&!busy&&!speaking)restartListening(350);
   };
 
   recognition.onerror=()=>{
@@ -287,10 +282,7 @@ if(SR){
 }
 
 function speakText(text){
-  if(!window.speechSynthesis){
-    restartListening();
-    return;
-  }
+  if(!window.speechSynthesis)return restartListening();
 
   speaking=true;
   abortListen();
@@ -301,11 +293,7 @@ function speakText(text){
   u.rate=.9;
   u.pitch=1;
 
-  u.onstart=()=>{
-    speaking=true;
-    status.textContent="Speaking...";
-    restartListening(100);
-  };
+  u.onstart=()=>status.textContent="Speaking...";
 
   u.onend=()=>{
     speaking=false;
@@ -331,9 +319,9 @@ function openVoice(){
 
   voice.setAttribute("aria-hidden","false");
   document.body.classList.add("kairo-voice-active");
-
   status.textContent="Listening...";
   sub.textContent="Talk to KAIRO";
+
   restartListening(300);
 }
 
@@ -356,10 +344,10 @@ closeV?.addEventListener("click",closeVoice);
 
 mic?.addEventListener("click",()=>{
   if(voiceMode)return;
+
   if(listening)abortListen();
   else{
-    if(!recognition)return;
-    try{recognition.start()}catch(e){}
+    try{recognition?.start()}catch(e){}
   }
 });
 
@@ -393,12 +381,14 @@ function renderHistory(q=""){
     const d=document.createElement("div");
     d.className="history-item";
     d.textContent=`${s.title} · ${s.messages.length} messages`;
+
     d.onclick=()=>{
       current=s.id;
       save();
       renderChat();
       closeHistory();
     };
+
     hl.appendChild(d);
   });
 }
@@ -461,13 +451,12 @@ removeFile?.addEventListener("click",()=>{
   preview?.setAttribute("aria-hidden","true");
 });
 
-/* DRAGGABLE BUBBLE */
+/* DRAG BUBBLE */
 
 function dragBubble(el,key){
   if(!el)return;
 
   let down=false,moved=false,dx=0,dy=0;
-
   const pos=JSON.parse(localStorage[key]||"null");
 
   if(pos){
@@ -479,10 +468,13 @@ function dragBubble(el,key){
   }
 
   el.addEventListener("pointerdown",e=>{
-    down=true;moved=false;
+    down=true;
+    moved=false;
+
     const r=el.getBoundingClientRect();
     dx=e.clientX-r.left;
     dy=e.clientY-r.top;
+
     el.setPointerCapture?.(e.pointerId);
   });
 
@@ -490,12 +482,15 @@ function dragBubble(el,key){
     if(!down)return;
 
     const w=el.offsetWidth,h=el.offsetHeight;
-    let x=e.clientX-dx,y=e.clientY-dy;
+
+    let x=e.clientX-dx;
+    let y=e.clientY-dy;
 
     x=Math.max(4,Math.min(innerWidth-w-4,x));
     y=Math.max(4,Math.min(innerHeight-h-4,y));
 
-    if(Math.abs(x-(el.offsetLeft||0))>3||Math.abs(y-(el.offsetTop||0))>3)moved=true;
+    if(Math.abs(x-(el.offsetLeft||0))>3||
+       Math.abs(y-(el.offsetTop||0))>3)moved=true;
 
     el.style.position="fixed";
     el.style.left=x+"px";
@@ -505,10 +500,11 @@ function dragBubble(el,key){
   });
 
   el.addEventListener("pointerup",()=>{
-    if(down){
-      const r=el.getBoundingClientRect();
+    const r=el.getBoundingClientRect();
+
+    if(down)
       localStorage[key]=JSON.stringify({x:r.left,y:r.top});
-    }
+
     down=false;
   });
 
@@ -524,15 +520,24 @@ function dragBubble(el,key){
 dragBubble(mini,"kairoBubblePosition");
 dragBubble(floating,"kairoFloatingPosition");
 
-/* INPUT BAR POSITION */
+/* MESSAGE BAR */
 
-const fix=document.createElement("style");
-fix.textContent=`
-.input-area{bottom:18px!important}
-.chat{padding-bottom:105px!important}
-.mini-voice-button,.floating-kairo{touch-action:none;position:fixed}
+const uiFix=document.createElement("style");
+
+uiFix.textContent=`
+.input-area{
+  bottom:28px!important;
+}
+.chat{
+  padding-bottom:115px!important;
+}
+.mini-voice-button,
+.floating-kairo{
+  touch-action:none;
+}
 `;
-document.head.appendChild(fix);
+
+document.head.appendChild(uiFix);
 
 /* START */
 
@@ -551,8 +556,13 @@ window.KAIRO={
   newChat:()=>newBtn?.click(),
   addMemory:text=>{
     if(text){
-      memory.push({id:uid(),text:String(text),time:Date.now()});
-      save();renderMemory();
+      memory.push({
+        id:uid(),
+        text:String(text),
+        time:Date.now()
+      });
+      save();
+      renderMemory();
     }
   }
 };
