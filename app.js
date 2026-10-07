@@ -1,327 +1,300 @@
-const $=id=>document.getElementById(id),chat=$("chat"),input=$("messageInput"),send=$("sendButton"),mic=$("micButton"),voice=$("voiceMode"),vStatus=$("voiceStatus"),vSub=$("voiceSubtitle"),closeV=$("closeVoiceButton"),mini=$("miniVoiceButton"),floating=$("floatingKairo"),histBtn=$("historyButton"),hist=$("historyPanel"),backdrop=$("historyBackdrop"),histList=$("historyList");
+const $=id=>document.getElementById(id);
 
-let busy=false,listening=false,speaking=false,recognition=null;
-let messages=JSON.parse(localStorage.kairoHistory||"[]");
+const chat=$("chat");
+const input=$("messageInput");
+const send=$("sendButton");
+const mic=$("micButton");
+const voice=$("voiceMode");
+const status=$("voiceStatus");
+const sub=$("voiceSubtitle");
+const closeV=$("closeVoiceButton");
+const mini=$("miniVoiceButton");
+const floating=$("floatingKairo");
+const histBtn=$("historyButton");
+const hist=$("historyPanel");
+const backdrop=$("historyBackdrop");
+const histList=$("historyList");
+
+let busy=false;
+let voiceMode=false;
+let listening=false;
+let recognition=null;
+
+let history=JSON.parse(localStorage.kairoHistory||"[]");
 let memory=JSON.parse(localStorage.kairoMemory||"[]");
 
 function save(){
-    localStorage.kairoHistory=JSON.stringify(messages.slice(-100));
-    localStorage.kairoMemory=JSON.stringify(memory.slice(-50));
-}
-
-function bubble(text,user){
-    const d=document.createElement("div");
-    d.className=user?"message user-message":"message ai-message";
-    d.textContent=text;
-    chat.appendChild(d);
-    chat.scrollTop=chat.scrollHeight;
+ localStorage.kairoHistory=JSON.stringify(history.slice(-100));
+ localStorage.kairoMemory=JSON.stringify(memory.slice(-50));
 }
 
 function add(text,user){
-    bubble(text,user);
-    messages.push({
-        role:user?"user":"assistant",
-        text:text,
-        time:Date.now()
-    });
-    save();
+ const d=document.createElement("div");
+ d.className=user?"message user-message":"message ai-message";
+ d.textContent=text;
+ chat.appendChild(d);
+ chat.scrollTop=chat.scrollHeight;
+
+ history.push({
+  role:user?"user":"assistant",
+  text:text,
+  time:Date.now()
+ });
+
+ save();
 }
 
-function renderHistory(query=""){
-    histList.innerHTML="";
-    const list=messages
-        .filter(x=>!query||x.text.toLowerCase().includes(query.toLowerCase()))
-        .slice(-40);
+function related(text){
+ const words=text.toLowerCase().split(/\s+/).filter(x=>x.length>2);
 
-    if(!list.length){
-        histList.textContent="No conversations yet.";
-        return;
-    }
-
-    list.forEach(x=>{
-        const d=document.createElement("div");
-        d.className="history-item";
-        d.textContent=(x.role==="user"?"You: ":"KAIRO: ")+x.text;
-        histList.appendChild(d);
-    });
+ return history
+  .filter(x=>words.some(w=>x.text.toLowerCase().includes(w)))
+  .slice(-8);
 }
 
-function historyTools(){
-    if(document.getElementById("historyTools"))return;
+async function ask(text,speak=false){
 
-    const d=document.createElement("div");
-    d.id="historyTools";
+ if(busy||!text)return;
 
-    d.innerHTML=`
-        <input id="historySearch" placeholder="Search history...">
-        <button id="newChat" type="button">+ New Conversation</button>
-        <button id="memoryBtn" type="button">Memory</button>
-    `;
+ busy=true;
+ send.disabled=true;
 
-    hist.insertBefore(d,histList);
+ add(text,true);
 
-    document.getElementById("historySearch").oninput=e=>{
-        renderHistory(e.target.value);
-    };
+ try{
 
-    document.getElementById("newChat").onclick=()=>{
-        chat.innerHTML="";
-        closeHistory();
-    };
+  const r=await fetch("/api/api",{
+   method:"POST",
+   headers:{
+    "Content-Type":"application/json"
+   },
+   body:JSON.stringify({
+    message:text,
+    memory:memory,
+    history:history.slice(-12),
+    relevantHistory:related(text),
+    gameMode:"normal"
+   })
+  });
 
-    document.getElementById("memoryBtn").onclick=()=>{
-        alert(
-            memory.length
-            ? memory.join("\n")
-            : "No saved memory yet."
-        );
-    };
+  const data=await r.json();
+  const reply=data.reply||"আমি এখন উত্তর দিতে পারছি না।";
+
+  add(reply,false);
+
+  if(speak) speakText(reply);
+
+ }catch(e){
+
+  add("Connection problem. আবার চেষ্টা করো।",false);
+
+ }finally{
+
+  busy=false;
+  send.disabled=false;
+ }
 }
 
-function openHistory(){
-    historyTools();
-    renderHistory();
-    hist.setAttribute("aria-hidden","false");
-    backdrop.setAttribute("aria-hidden","false");
-}
+send.onclick=()=>{
+ const text=input.value.trim();
 
-function closeHistory(){
-    hist.setAttribute("aria-hidden","true");
-    backdrop.setAttribute("aria-hidden","true");
-}
+ if(!text)return;
 
-histBtn.onclick=openHistory;
-backdrop.onclick=closeHistory;
-
-function remember(text){
-    if(!memory.includes(text)&&text.length<180){
-        memory.push(text);
-        save();
-    }
-}
-
-function relevantHistory(){
-    const words=input.value
-        .toLowerCase()
-        .split(/\W+/)
-        .filter(x=>x.length>2);
-
-    return messages
-        .filter(x=>words.some(w=>x.text.toLowerCase().includes(w)))
-        .slice(-8);
-}
-
-async function ask(){
-
-    if(busy)return;
-
-    const text=input.value.trim();
-
-    if(!text)return;
-
-    busy=true;
-    send.disabled=true;
-
-    add(text,true);
-    input.value="";
-
-    const low=text.toLowerCase();
-
-    if(
-        /^(stop|চুপ|চুপ কর|থাম)/.test(low)
-    ){
-        speechSynthesis.cancel();
-        busy=false;
-        send.disabled=false;
-        return;
-    }
-
-    try{
-
-        const response=await fetch("/api/api",{
-            method:"POST",
-            headers:{
-                "Content-Type":"application/json"
-            },
-            body:JSON.stringify({
-                message:text,
-                memory:memory,
-                relevantHistory:relevantHistory(),
-                history:messages.slice(-12),
-                gameMode:"normal"
-            })
-        });
-
-        const data=await response.json();
-
-        const reply=
-            data.reply||
-            "KAIRO এখন উত্তর দিতে পারছে না।";
-
-        add(reply,false);
-
-        if(
-            /my name is|আমার নাম|remember|মনে রাখ/.test(low)
-        ){
-            remember(text);
-        }
-
-        if(speaking){
-            talk(reply);
-        }
-
-    }catch(error){
-
-        add(
-            "Connection problem. আবার চেষ্টা করো।",
-            false
-        );
-
-    }finally{
-
-        busy=false;
-        send.disabled=false;
-
-    }
-}
-
-send.onclick=ask;
-
-input.onkeydown=e=>{
-    if(
-        e.key==="Enter"&&
-        !e.shiftKey
-    ){
-        e.preventDefault();
-        ask();
-    }
+ input.value="";
+ ask(text,false);
 };
 
-function setupRecognition(){
+input.onkeydown=e=>{
 
-    const R=
-        window.SpeechRecognition||
-        window.webkitSpeechRecognition;
+ if(e.key==="Enter"&&!e.shiftKey){
+  e.preventDefault();
+  send.click();
+ }
+};
 
-    if(!R)return null;
+const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
 
-    const r=new R();
+if(SR){
 
-    r.lang="bn-BD";
-    r.interimResults=false;
-    r.continuous=false;
+ recognition=new SR();
 
-    r.onstart=()=>{
-        listening=true;
-        if(vStatus)vStatus.textContent="Listening...";
-    };
+ recognition.lang="bn-BD";
+ recognition.continuous=false;
+ recognition.interimResults=false;
 
-    r.onresult=e=>{
-        input.value=
-            e.results[0][0].transcript;
-        ask();
-    };
+ recognition.onstart=()=>{
 
-    r.onend=()=>{
-        listening=false;
-        if(vStatus)vStatus.textContent="Ready";
-    };
+  listening=true;
 
-    r.onerror=()=>{
-        listening=false;
-        if(vStatus)vStatus.textContent="Try again";
-    };
+  if(mic)mic.classList.add("listening");
 
-    return r;
+  if(voiceMode&&status){
+   status.textContent="Listening...";
+  }
+ };
+
+ recognition.onresult=e=>{
+
+  const text=e.results[0][0].transcript;
+
+  if(voiceMode){
+
+   ask(text,true);
+
+  }else{
+
+   input.value=text;
+   input.focus();
+  }
+ };
+
+ recognition.onend=()=>{
+
+  listening=false;
+
+  if(mic)mic.classList.remove("listening");
+
+  if(voiceMode&&!busy){
+   setTimeout(listen,500);
+  }
+ };
+
+ recognition.onerror=()=>{
+
+  listening=false;
+
+  if(mic)mic.classList.remove("listening");
+ };
 }
-
-recognition=setupRecognition();
 
 function listen(){
 
-    if(!recognition){
-        alert("Voice input is not supported here.");
-        return;
-    }
+ if(!recognition)return;
 
-    try{
-        recognition.start();
-    }catch(e){}
+ if(listening)return;
+
+ try{
+  recognition.start();
+ }catch(e){}
 }
 
-mic.onclick=listen;
+mic.onclick=()=>{
 
-function talk(text){
+ if(voiceMode)return;
 
-    if(!("speechSynthesis" in window))return;
+ if(listening){
 
-    speechSynthesis.cancel();
+  try{
+   recognition.stop();
+  }catch(e){}
 
-    const u=
-        new SpeechSynthesisUtterance(text);
+ }else{
 
-    u.lang=
-        /[\u0980-\u09FF]/.test(text)
-        ?"bn-BD"
-        :"en-US";
+  listen();
+ }
+};
 
-    u.rate=.95;
+function speakText(text){
 
-    u.onstart=()=>{
-        speaking=true;
-    };
+ if(!window.speechSynthesis)return;
 
-    u.onend=()=>{
-        speaking=false;
+ speechSynthesis.cancel();
 
-        if(
-            voice&&
-            voice.getAttribute("aria-hidden")==="false"
-        ){
-            listen();
-        }
-    };
+ const u=new SpeechSynthesisUtterance(text);
 
-    speechSynthesis.speak(u);
+ u.lang=/[\u0980-\u09FF]/.test(text)
+  ?"bn-BD"
+  :"en-US";
+
+ u.rate=.9;
+ u.pitch=1;
+
+ u.onend=()=>{
+
+  if(voiceMode&&!busy){
+   setTimeout(listen,500);
+  }
+ };
+
+ speechSynthesis.speak(u);
 }
 
 function openVoice(){
 
-    voice.setAttribute("aria-hidden","false");
+ voiceMode=true;
 
-    speaking=true;
+ voice.setAttribute("aria-hidden","false");
 
-    if(vStatus)vStatus.textContent="Listening...";
-    if(vSub)vSub.textContent="Talk to KAIRO";
+ document.body.classList.add("kairo-voice-active");
 
-    listen();
+ if(status)status.textContent="Listening...";
+ if(sub)sub.textContent="Talk to KAIRO";
+
+ setTimeout(listen,300);
 }
 
 function closeVoice(){
 
-    voice.setAttribute("aria-hidden","true");
+ voiceMode=false;
 
-    speechSynthesis.cancel();
+ voice.setAttribute("aria-hidden","true");
 
-    speaking=false;
-    listening=false;
+ document.body.classList.remove("kairo-voice-active");
 
-    try{
-        if(recognition)recognition.stop();
-    }catch(e){}
+ try{
+  recognition.stop();
+ }catch(e){}
+
+ speechSynthesis.cancel();
+
+ listening=false;
+
+ if(mic)mic.classList.remove("listening");
 }
 
 if(mini)mini.onclick=openVoice;
 if(floating)floating.onclick=openVoice;
 if(closeV)closeV.onclick=closeVoice;
 
-window.KAIRO={
-    ask:ask,
-    listen:listen,
-    openVoice:openVoice,
-    closeVoice:closeVoice,
-    history:messages,
-    memory:memory
+function renderHistory(search=""){
+
+ if(!histList)return;
+
+ histList.innerHTML="";
+
+ history
+  .filter(x=>x.text.toLowerCase().includes(search.toLowerCase()))
+  .slice(-40)
+  .forEach(x=>{
+
+   const d=document.createElement("div");
+
+   d.className="history-item";
+
+   d.textContent=
+    (x.role==="user"?"You: ":"KAIRO: ")+x.text;
+
+   histList.appendChild(d);
+  });
+}
+
+histBtn.onclick=()=>{
+
+ renderHistory("");
+
+ hist.setAttribute("aria-hidden","false");
+ backdrop.setAttribute("aria-hidden","false");
 };
 
-renderHistory();
+backdrop.onclick=()=>{
+
+ hist.setAttribute("aria-hidden","true");
+ backdrop.setAttribute("aria-hidden","true");
+};
+
+window.KAIRO={
+ ask:ask,
+ listen:listen,
+ openVoice:openVoice,
+ closeVoice:closeVoice
+};
