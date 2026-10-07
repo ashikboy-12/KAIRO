@@ -1,504 +1,451 @@
 const $=id=>document.getElementById(id);
 
-const chat=$("chat");
-const input=$("messageInput");
-const send=$("sendButton");
-const mic=$("micButton");
-const voice=$("voiceMode");
-const status=$("voiceStatus");
-const sub=$("voiceSubtitle");
-const closeV=$("closeVoiceButton");
-const mini=$("miniVoiceButton");
-const floating=$("floatingKairo");
-const histBtn=$("historyButton");
-const hist=$("historyPanel");
-const backdrop=$("historyBackdrop");
-const histList=$("historyList");
+const chat=$("chat"),input=$("messageInput"),send=$("sendButton");
+const mic=$("micButton"),voice=$("voiceMode"),status=$("voiceStatus");
+const sub=$("voiceSubtitle"),closeV=$("closeVoiceButton");
+const mini=$("miniVoiceButton"),floating=$("floatingKairo");
+const histBtn=$("historyButton"),hist=$("historyPanel");
+const backdrop=$("historyBackdrop"),histList=$("historyList");
 
-let busy=false;
-let voiceMode=false;
-let listening=false;
-let speaking=false;
-let recognition=null;
-let restartTimer=null;
+let busy=false,voiceMode=false,listening=false,speaking=false;
+let recognition=null,restartTimer=null;
 
 let history=JSON.parse(localStorage.kairoHistory||"[]");
 let memory=JSON.parse(localStorage.kairoMemory||"[]");
 
 function save(){
- localStorage.kairoHistory=JSON.stringify(history.slice(-100));
- localStorage.kairoMemory=JSON.stringify(memory.slice(-50));
+  localStorage.kairoHistory=JSON.stringify(history.slice(-100));
+  localStorage.kairoMemory=JSON.stringify(memory.slice(-50));
 }
 
 function add(text,user){
- const d=document.createElement("div");
+  const d=document.createElement("div");
+  d.className=user?"message user-message":"message ai-message";
+  d.textContent=text;
+  chat.appendChild(d);
+  chat.scrollTop=chat.scrollHeight;
 
- d.className=user
-  ?"message user-message"
-  :"message ai-message";
+  history.push({
+    role:user?"user":"assistant",
+    text,
+    time:Date.now()
+  });
 
- d.textContent=text;
-
- chat.appendChild(d);
- chat.scrollTop=chat.scrollHeight;
-
- history.push({
-  role:user?"user":"assistant",
-  text:text,
-  time:Date.now()
- });
-
- save();
+  save();
 }
 
 function related(text){
- const words=text.toLowerCase()
-  .split(/\s+/)
-  .filter(x=>x.length>2);
+  const words=text.toLowerCase()
+    .split(/\s+/)
+    .filter(x=>x.length>2);
 
- return history
-  .filter(x=>words.some(w=>x.text.toLowerCase().includes(w)))
-  .slice(-8);
-}
-
-function stopEverything(){
- speaking=false;
-
- if(window.speechSynthesis){
-  speechSynthesis.cancel();
- }
-
- try{
-  if(recognition){
-   recognition.onend=null;
-   recognition.stop();
-  }
- }catch(e){}
-
- listening=false;
-
- if(mic){
-  mic.classList.remove("listening");
- }
+  return history
+    .filter(x=>words.some(w=>x.text.toLowerCase().includes(w)))
+    .slice(-8);
 }
 
 function isStopCommand(text){
- const t=text.toLowerCase().trim();
+  const t=text.toLowerCase().trim();
 
- return(
-  t==="থামো"||
-  t==="থাম"||
-  t==="চুপ"||
-  t==="বন্ধ"||
-  t==="stop"||
-  t==="stop talking"||
-  t==="be quiet"||
-  t==="shut up"||
-  t.includes("থামো")||
-  t.includes("থাম")||
-  t.includes("চুপ কর")||
-  t.includes("stop")
- );
+  return [
+    "থামো","থাম","চুপ","চুপ কর","বন্ধ",
+    "stop","stop talking","be quiet",
+    "shut up"
+  ].some(x=>t===x||t.includes(x));
+}
+
+function cancelRecognition(){
+  if(!recognition)return;
+
+  try{
+    recognition.abort();
+  }catch(e){}
+
+  listening=false;
+
+  if(mic)mic.classList.remove("listening");
+}
+
+function startListening(){
+  if(!voiceMode||busy||speaking||listening||!recognition)return;
+
+  clearTimeout(restartTimer);
+
+  try{
+    recognition.start();
+  }catch(e){}
+}
+
+function restartListening(delay=400){
+  clearTimeout(restartTimer);
+
+  restartTimer=setTimeout(()=>{
+    if(voiceMode&&!busy&&!speaking&&!listening){
+      startListening();
+    }
+  },delay);
+}
+
+function stopKairoSpeaking(){
+  speaking=false;
+
+  if(window.speechSynthesis){
+    speechSynthesis.cancel();
+  }
+
+  if(status){
+    status.textContent="Listening...";
+  }
+
+  restartListening(350);
 }
 
 async function ask(text,speak=false){
 
- if(!text||busy)return;
+  text=text.trim();
 
- if(voiceMode&&isStopCommand(text)){
-  stopEverything();
+  if(!text||busy)return;
 
-  if(status){
-   status.textContent="Stopped";
+  if(voiceMode&&isStopCommand(text)){
+    stopKairoSpeaking();
+    return;
   }
 
-  setTimeout(()=>{
-   if(voiceMode&&!speaking){
-    listen();
-   }
-  },500);
+  busy=true;
+  send.disabled=true;
 
-  return;
- }
+  cancelRecognition();
 
- busy=true;
- send.disabled=true;
+  add(text,true);
 
- add(text,true);
+  try{
 
- try{
+    const r=await fetch("/api/api",{
+      method:"POST",
+      headers:{
+        "Content-Type":"application/json"
+      },
+      body:JSON.stringify({
+        message:text,
+        memory,
+        history:history.slice(-12),
+        relevantHistory:related(text),
+        gameMode:"normal"
+      })
+    });
 
-  const r=await fetch("/api/api",{
-   method:"POST",
-   headers:{
-    "Content-Type":"application/json"
-   },
-   body:JSON.stringify({
-    message:text,
-    memory:memory,
-    history:history.slice(-12),
-    relevantHistory:related(text),
-    gameMode:"normal"
-   })
-  });
+    const data=await r.json();
 
-  const data=await r.json();
+    const reply=data.reply||
+      "আমি এখন উত্তর দিতে পারছি না।";
 
-  const reply=
-   data.reply||
-   "আমি এখন উত্তর দিতে পারছি না।";
+    add(reply,false);
 
-  add(reply,false);
+    if(speak&&voiceMode){
+      speakText(reply);
+    }
 
-  if(speak&&voiceMode){
-   speakText(reply);
+  }catch(e){
+
+    add(
+      "Connection problem. আবার চেষ্টা করো।",
+      false
+    );
+
+  }finally{
+
+    busy=false;
+    send.disabled=false;
+
+    if(voiceMode&&!speaking){
+      restartListening(400);
+    }
   }
-
- }catch(e){
-
-  add(
-   "Connection problem. আবার চেষ্টা করো।",
-   false
-  );
-
- }finally{
-
-  busy=false;
-  send.disabled=false;
- }
 }
 
 send.onclick=()=>{
- const text=input.value.trim();
-
- if(!text)return;
-
- input.value="";
-
- ask(text,false);
-};
-
-input.onkeydown=e=>{
-
- if(e.key==="Enter"&&!e.shiftKey){
-  e.preventDefault();
-  send.click();
- }
-};
-
-const SR=
- window.SpeechRecognition||
- window.webkitSpeechRecognition;
-
-if(SR){
-
- recognition=new SR();
-
- recognition.lang="bn-BD";
- recognition.continuous=false;
- recognition.interimResults=false;
-
- recognition.onstart=()=>{
-
-  listening=true;
-
-  if(mic){
-   mic.classList.add("listening");
-  }
-
-  if(voiceMode&&status){
-   status.textContent="Listening...";
-  }
- };
-
- recognition.onresult=e=>{
-
-  const text=e.results[0][0].transcript.trim();
+  const text=input.value.trim();
 
   if(!text)return;
 
-  if(voiceMode){
+  input.value="";
+  ask(text,false);
+};
 
-   if(isStopCommand(text)){
+input.onkeydown=e=>{
+  if(e.key==="Enter"&&!e.shiftKey){
+    e.preventDefault();
+    send.click();
+  }
+};
 
-    stopEverything();
+const SR=
+  window.SpeechRecognition||
+  window.webkitSpeechRecognition;
 
-    if(status){
-     status.textContent="Stopped";
+if(SR){
+
+  recognition=new SR();
+
+  recognition.lang="bn-BD";
+  recognition.continuous=false;
+  recognition.interimResults=false;
+
+  recognition.onstart=()=>{
+    listening=true;
+
+    if(mic){
+      mic.classList.add("listening");
     }
 
-    setTimeout(()=>{
-     if(voiceMode){
-      listen();
-     }
-    },500);
+    if(voiceMode&&status){
+      status.textContent="Listening...";
+    }
+  };
 
-   }else{
+  recognition.onresult=e=>{
 
-    ask(text,true);
-   }
+    const text=
+      e.results[0][0].transcript.trim();
 
-  }else{
+    listening=false;
 
-   input.value=text;
-   input.focus();
-  }
- };
+    if(mic){
+      mic.classList.remove("listening");
+    }
 
- recognition.onend=()=>{
+    if(!text){
+      restartListening();
+      return;
+    }
 
-  listening=false;
+    if(voiceMode){
 
-  if(mic){
-   mic.classList.remove("listening");
-  }
+      if(isStopCommand(text)){
+        stopKairoSpeaking();
+        return;
+      }
 
-  if(
-   voiceMode&&
-   !busy&&
-   !speaking
-  ){
-   clearTimeout(restartTimer);
+      ask(text,true);
 
-   restartTimer=setTimeout(()=>{
+    }else{
+
+      input.value=text;
+      input.focus();
+    }
+  };
+
+  recognition.onend=()=>{
+
+    listening=false;
+
+    if(mic){
+      mic.classList.remove("listening");
+    }
+
     if(
-     voiceMode&&
-     !busy&&
-     !speaking
+      voiceMode&&
+      !busy&&
+      !speaking
     ){
-     listen();
+      restartListening(450);
     }
-   },700);
-  }
- };
+  };
 
- recognition.onerror=()=>{
+  recognition.onerror=()=>{
+    listening=false;
 
-  listening=false;
+    if(mic){
+      mic.classList.remove("listening");
+    }
 
-  if(mic){
-   mic.classList.remove("listening");
-  }
- };
+    if(voiceMode&&!busy&&!speaking){
+      restartListening(700);
+    }
+  };
 }
 
 function listen(){
-
- if(!recognition)return;
- if(listening)return;
- if(speaking)return;
- if(!voiceMode)return;
-
- try{
-  recognition.start();
- }catch(e){}
+  startListening();
 }
 
 mic.onclick=()=>{
 
- if(voiceMode)return;
+  if(voiceMode)return;
 
- if(listening){
+  if(listening){
+    cancelRecognition();
+  }else{
+    startNormalMic();
+  }
+};
+
+function startNormalMic(){
+
+  if(!recognition)return;
 
   try{
-   recognition.stop();
-  }catch(e){}
-
- }else{
-
-  if(recognition){
-   try{
     recognition.start();
-   }catch(e){}
-  }
- }
-};
+  }catch(e){}
+}
 
 function speakText(text){
 
- if(!window.speechSynthesis)return;
-
- speaking=true;
-
- try{
-  if(recognition){
-   recognition.stop();
+  if(!window.speechSynthesis){
+    restartListening();
+    return;
   }
- }catch(e){}
 
- speechSynthesis.cancel();
-
- const u=
-  new SpeechSynthesisUtterance(text);
-
- u.lang=
-  /[\u0980-\u09FF]/.test(text)
-   ?"bn-BD"
-   :"en-US";
-
- u.rate=.9;
- u.pitch=1;
-
- u.onstart=()=>{
   speaking=true;
+  cancelRecognition();
 
-  if(status){
-   status.textContent="Speaking...";
-  }
- };
+  speechSynthesis.cancel();
 
- u.onend=()=>{
+  const u=new SpeechSynthesisUtterance(text);
 
-  speaking=false;
+  u.lang=/[\u0980-\u09FF]/.test(text)
+    ?"bn-BD"
+    :"en-US";
 
-  if(
-   voiceMode&&
-   !busy
-  ){
-   if(status){
-    status.textContent="Listening...";
-   }
+  u.rate=.9;
+  u.pitch=1;
 
-   clearTimeout(restartTimer);
+  u.onstart=()=>{
+    speaking=true;
 
-   restartTimer=setTimeout(()=>{
-    if(
-     voiceMode&&
-     !speaking&&
-     !busy
-    ){
-     listen();
+    if(status){
+      status.textContent="Speaking...";
     }
-   },500);
-  }
- };
+  };
 
- u.onerror=()=>{
+  u.onend=()=>{
+    speaking=false;
 
-  speaking=false;
+    if(voiceMode&&!busy){
+      if(status){
+        status.textContent="Listening...";
+      }
 
-  if(
-   voiceMode&&
-   !busy
-  ){
-   setTimeout(listen,500);
-  }
- };
+      restartListening(350);
+    }
+  };
 
- speechSynthesis.speak(u);
+  u.onerror=()=>{
+    speaking=false;
+
+    if(voiceMode&&!busy){
+      restartListening(350);
+    }
+  };
+
+  speechSynthesis.speak(u);
 }
 
 function openVoice(){
 
- stopEverything();
+  clearTimeout(restartTimer);
 
- voiceMode=true;
+  speechSynthesis?.cancel();
 
- voice.setAttribute(
-  "aria-hidden",
-  "false"
- );
+  cancelRecognition();
 
- document.body.classList.add(
-  "kairo-voice-active"
- );
+  speaking=false;
+  voiceMode=true;
 
- if(status){
-  status.textContent="Listening...";
- }
+  voice.setAttribute("aria-hidden","false");
 
- if(sub){
-  sub.textContent="Talk to KAIRO";
- }
+  document.body.classList.add(
+    "kairo-voice-active"
+  );
 
- setTimeout(()=>{
-  if(voiceMode){
-   listen();
+  if(status){
+    status.textContent="Listening...";
   }
- },400);
+
+  if(sub){
+    sub.textContent="Talk to KAIRO";
+  }
+
+  restartListening(500);
 }
 
 function closeVoice(){
 
- voiceMode=false;
+  voiceMode=false;
 
- clearTimeout(restartTimer);
+  clearTimeout(restartTimer);
 
- stopEverything();
+  speaking=false;
 
- voice.setAttribute(
-  "aria-hidden",
-  "true"
- );
+  if(window.speechSynthesis){
+    speechSynthesis.cancel();
+  }
 
- document.body.classList.remove(
-  "kairo-voice-active"
- );
+  cancelRecognition();
 
- if(status){
-  status.textContent="Ready";
- }
+  voice.setAttribute("aria-hidden","true");
+
+  document.body.classList.remove(
+    "kairo-voice-active"
+  );
+
+  if(status){
+    status.textContent="Ready";
+  }
 }
 
-if(mini){
- mini.onclick=openVoice;
-}
-
-if(floating){
- floating.onclick=openVoice;
-}
-
-if(closeV){
- closeV.onclick=closeVoice;
-}
+if(mini)mini.onclick=openVoice;
+if(floating)floating.onclick=openVoice;
+if(closeV)closeV.onclick=closeVoice;
 
 histBtn.onclick=()=>{
 
- if(histList){
-  histList.innerHTML="";
+  if(histList){
 
-  history.slice(-40).forEach(x=>{
+    histList.innerHTML="";
 
-   const d=document.createElement("div");
+    history.slice(-40).forEach(x=>{
 
-   d.className="history-item";
+      const d=document.createElement("div");
 
-   d.textContent=
-    (x.role==="user"
-     ?"You: "
-     :"KAIRO: ")+x.text;
+      d.className="history-item";
 
-   histList.appendChild(d);
-  });
- }
+      d.textContent=
+        (x.role==="user"
+          ?"You: "
+          :"KAIRO: ")+x.text;
 
- hist.setAttribute(
-  "aria-hidden",
-  "false"
- );
+      histList.appendChild(d);
+    });
+  }
 
- backdrop.setAttribute(
-  "aria-hidden",
-  "false"
- );
+  hist.setAttribute(
+    "aria-hidden",
+    "false"
+  );
+
+  backdrop.setAttribute(
+    "aria-hidden",
+    "false"
+  );
 };
 
 backdrop.onclick=()=>{
 
- hist.setAttribute(
-  "aria-hidden",
-  "true"
- );
+  hist.setAttribute(
+    "aria-hidden",
+    "true"
+  );
 
- backdrop.setAttribute(
-  "aria-hidden",
-  "true"
- );
+  backdrop.setAttribute(
+    "aria-hidden",
+    "true"
+  );
 };
 
 window.KAIRO={
- ask:ask,
- listen:listen,
- openVoice:openVoice,
- closeVoice:closeVoice
+  ask,
+  listen,
+  openVoice,
+  closeVoice
 };
