@@ -1,615 +1,381 @@
 const $=id=>document.getElementById(id);
 
-const chat=$("chat");
-const input=$("messageInput");
-const send=$("sendButton");
-const mic=$("micButton");
+const chat=$("chat"),input=$("messageInput"),send=$("sendButton"),
+mic=$("micButton"),voice=$("voiceMode"),vlogo=$("voiceLogo"),
+vstatus=$("voiceStatus"),vsub=$("voiceSubtitle"),
+history=$("historyPanel"),back=$("historyBackdrop"),
+hbtn=$("historyButton"),list=$("historyList");
 
-const voiceMode=$("voiceMode");
-const voiceLogo=$("voiceLogo");
-const voiceStatus=$("voiceStatus");
-const voiceSubtitle=$("voiceSubtitle");
-
-const miniVoice=$("miniVoiceButton");
-const floating=$("floatingKairo");
-
-const historyButton=$("historyButton");
-const historyPanel=$("historyPanel");
-const historyBackdrop=$("historyBackdrop");
-
-let voiceOn=false;
-let recognition=null;
-let speaking=false;
-let starting=false;
+const KEY="kairo_chats";
+let current=null,rec=null,listening=false,starting=false,busy=false;
 
 
-/* =========================
-   CHAT
-========================= */
+/* ---------- STORAGE ---------- */
 
-function message(type,text){
+const chats=()=>JSON.parse(localStorage.getItem(KEY)||"[]");
 
-    if(!chat)return;
+function save(){
+    let a=chats(),i=a.findIndex(x=>x.id===current.id);
+    if(i<0)a.unshift(current);else a[i]=current;
+    localStorage.setItem(KEY,JSON.stringify(a));
+}
 
-    const welcome=chat.querySelector(".welcome");
-    if(welcome)welcome.remove();
+function topic(t){
+    let s=t.toLowerCase();
+    let map={
+        anime:"Anime",manga:"Manga",game:"Gaming",
+        gaming:"Gaming","free fire":"Free Fire",
+        football:"Football",trading:"Trading",
+        quotex:"Trading",study:"Study",ssc:"SSC Study",
+        math:"Math",physics:"Physics",chemistry:"Chemistry",
+        biology:"Biology",coding:"Coding",html:"Coding",
+        javascript:"Coding",phone:"Phone",android:"Android",
+        news:"News",youtube:"YouTube",kairo:"KAIRO"
+    };
+    for(let k in map)if(s.includes(k))return map[k];
+    return t.trim().split(/\s+/).slice(0,5).join(" ")||"New Chat";
+}
 
-    const box=document.createElement("div");
+function newChat(first=""){
+    current={
+        id:Date.now()+Math.random(),
+        title:topic(first),
+        time:Date.now(),
+        messages:[]
+    };
+    let a=chats();a.unshift(current);
+    localStorage.setItem(KEY,JSON.stringify(a));
+}
 
-    box.className=
-        type==="user"
-        ?"message user-message"
-        :"message ai-message";
 
-    box.textContent=text;
+/* ---------- UI ---------- */
 
-    chat.appendChild(box);
+function clearWelcome(){
+    chat.querySelector(".welcome")?.remove();
+}
+
+function add(text,type){
+    let e=document.createElement("div");
+    e.className="message "+(type==="user"?"user-message":"ai-message");
+    e.textContent=text;
+    chat.appendChild(e);
     chat.scrollTop=chat.scrollHeight;
+    return e;
+}
+
+function store(role,text){
+    if(!current)newChat(text);
+    current.messages.push({role,text,time:Date.now()});
+    current.time=Date.now();
+    save();
 }
 
 
-/* =========================
-   AI
-========================= */
+/* ---------- AI ---------- */
 
-async function askKairo(text){
+async function ask(text){
 
-    try{
+    let old=chats(),words=text.toLowerCase().split(/\s+/);
 
-        const r=await fetch("/api/api",{
-            method:"POST",
-            headers:{
-                "Content-Type":"application/json"
-            },
-            body:JSON.stringify({
-                message:text
-            })
-        });
+    let relevant=old.filter(c=>
+        c.messages.some(m=>
+            words.some(w=>w.length>2&&m.text.toLowerCase().includes(w))
+        )
+    ).slice(0,3);
 
-        const data=await r.json();
+    let context=relevant.map(c=>
+        `[${c.title}]\n`+
+        c.messages.slice(-6).map(m=>
+            (m.role==="user"?"User: ":"KAIRO: ")+m.text
+        ).join("\n")
+    ).join("\n---\n");
 
-        if(!r.ok||!data.success)
-            throw new Error(data.error||"API error");
+    let r=await fetch("/api/api",{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({
+            message:text,
+            context,
+            conversation:current?.messages.slice(-10)||[]
+        })
+    });
 
-        return data.reply||"";
+    if(!r.ok)throw Error("API "+r.status);
 
-    }catch(e){
+    let d=await r.json();
 
-        console.error("KAIRO:",e);
+    if(!d.reply)throw Error("No reply");
 
-        return "Sorry, I couldn't connect right now.";
-
-    }
+    return d.reply;
 }
 
 
-/* =========================
-   TEXT SEND
-========================= */
+/* ---------- TEXT CHAT ---------- */
 
-async function sendMessage(){
+async function sendMsg(){
 
-    const text=input?.value.trim();
+    let text=input.value.trim();
+    if(!text||send.disabled)return;
 
-    if(!text)return;
+    clearWelcome();
+
+    if(!current)newChat(text);
+
+    add(text,"user");
+    store("user",text);
 
     input.value="";
+    input.style.height="auto";
 
-    message("user",text);
+    let thinking=add("Thinking…","ai");
+    send.disabled=true;
 
-    const reply=await askKairo(text);
-
-    if(reply){
-
-        message("ai",reply);
-
-        /* Normal chat never speaks automatically */
-
+    try{
+        let reply=await ask(text);
+        thinking.remove();
+        add(reply,"ai");
+        store("ai",reply);
+    }catch(e){
+        console.error(e);
+        thinking.textContent=
+            "I'm having trouble connecting right now. Please try again.";
+        store("ai",thinking.textContent);
     }
+
+    send.disabled=false;
 }
 
-send?.addEventListener("click",sendMessage);
+send.onclick=sendMsg;
 
-input?.addEventListener("keydown",e=>{
-
+input.onkeydown=e=>{
     if(e.key==="Enter"&&!e.shiftKey){
-
         e.preventDefault();
-        sendMessage();
-
+        sendMsg();
     }
+};
 
-});
+input.oninput=()=>{
+    input.style.height="auto";
+    input.style.height=Math.min(input.scrollHeight,110)+"px";
+};
 
 
-/* =========================
-   VOICE STATUS
-========================= */
+/* ---------- VOICE ---------- */
 
-function setVoice(status,sub){
+const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
 
-    if(voiceStatus)
-        voiceStatus.textContent=status;
+if(SR){
+    rec=new SR();
+    rec.continuous=false;
+    rec.interimResults=false;
+    rec.lang="en-US";
 
-    if(voiceSubtitle)
-        voiceSubtitle.textContent=sub;
+    rec.onstart=()=>{
+        listening=true;
+        starting=false;
+        if(vstatus)vstatus.textContent="Listening";
+        if(vsub)vsub.textContent="Talk to KAIRO";
+    };
 
+    rec.onresult=async e=>{
+        if(busy)return;
+
+        let text=e.results[0][0].transcript.trim();
+        if(!text)return;
+
+        busy=true;
+        stopListen();
+
+        clearWelcome();
+
+        if(!current)newChat(text);
+
+        add(text,"user");
+        store("user",text);
+
+        if(vstatus)vstatus.textContent="Thinking…";
+        if(vsub)vsub.textContent="KAIRO is thinking";
+
+        try{
+            let reply=await ask(text);
+
+            add(reply,"ai");
+            store("ai",reply);
+
+            if(vstatus)vstatus.textContent="Speaking";
+            if(vsub)vsub.textContent="KAIRO is replying";
+
+            await speak(reply);
+
+        }catch(e){
+            let msg="Sorry, I couldn't connect right now.";
+            add(msg,"ai");
+            store("ai",msg);
+            await speak(msg);
+        }
+
+        busy=false;
+
+        if(voice.classList.contains("active")){
+            if(vstatus)vstatus.textContent="Listening";
+            setTimeout(startListen,600);
+        }
+    };
+
+    rec.onerror=e=>{
+        listening=false;
+        starting=false;
+        if(e.error==="not-allowed"){
+            if(vstatus)vstatus.textContent="Mic permission needed";
+        }
+    };
+
+    rec.onend=()=>{
+        listening=false;
+        starting=false;
+    };
 }
 
-
-/* =========================
-   SPEECH RECOGNITION
-========================= */
-
-const Speech=
-    window.SpeechRecognition||
-    window.webkitSpeechRecognition;
-
-
-function startListening(){
-
-    if(!voiceOn||speaking||starting)return;
-
-    if(!Speech){
-
-        setVoice(
-            "Voice unavailable",
-            "Speech recognition is not supported"
-        );
-
-        return;
-    }
+function startListen(){
+    if(!rec||!voice.classList.contains("active")||
+       listening||starting||busy)return;
 
     starting=true;
 
-    recognition=new Speech();
-
-    recognition.continuous=false;
-    recognition.interimResults=false;
-    recognition.maxAlternatives=1;
-
-    /*
-      English locale.
-      Bangla/Banglish will be improved
-      later with native speech recognition.
-    */
-
-    recognition.lang="en-US";
-
-
-    recognition.onstart=()=>{
-
-        starting=false;
-
-        setVoice(
-            "Listening...",
-            "I'm listening"
-        );
-
-    };
-
-
-    recognition.onresult=async e=>{
-
-        const text=
-            e.results[0][0].transcript.trim();
-
-        recognition=null;
-        starting=false;
-
-        if(!text||!voiceOn)return;
-
-
-        setVoice(
-            "Thinking...",
-            "KAIRO is processing"
-        );
-
-
-        message("user",text);
-
-
-        const reply=
-            await askKairo(text);
-
-
-        if(!reply||!voiceOn){
-
-            if(voiceOn)
-                setTimeout(startListening,700);
-
-            return;
-        }
-
-
-        message("ai",reply);
-
-
-        /*
-          ONLY VOICE MODE speaks.
-        */
-
-        await speak(reply);
-
-
-        if(voiceOn){
-
-            setTimeout(
-                startListening,
-                700
-            );
-
-        }
-
-    };
-
-
-    recognition.onerror=e=>{
-
-        console.log(
-            "Recognition:",
-            e.error
-        );
-
-        recognition=null;
-        starting=false;
-
-
-        if(!voiceOn)return;
-
-
-        if(
-            e.error==="not-allowed"||
-            e.error==="service-not-allowed"
-        ){
-
-            setVoice(
-                "Microphone permission",
-                "Allow microphone access"
-            );
-
-            return;
-
-        }
-
-
-        /*
-          Ignore normal recognition errors
-          and quietly try again.
-        */
-
-        setTimeout(
-            startListening,
-            1200
-        );
-
-    };
-
-
-    recognition.onend=()=>{
-
-        recognition=null;
-        starting=false;
-
-
-        if(
-            voiceOn&&
-            !speaking
-        ){
-
-            setTimeout(
-                startListening,
-                700
-            );
-
-        }
-
-    };
-
-
-    try{
-
-        recognition.start();
-
-    }catch(e){
-
-        recognition=null;
-        starting=false;
-
-        setTimeout(
-            startListening,
-            1200
-        );
-
-    }
-
+    try{rec.start()}
+    catch(e){starting=false}
 }
 
-
-/* =========================
-   STOP LISTENING
-========================= */
-
-function stopListening(){
-
-    if(recognition){
-
-        try{
-            recognition.stop();
-        }catch(e){}
-
-    }
-
-    recognition=null;
+function stopListen(){
+    if(!rec)return;
+    try{rec.stop()}catch(e){}
+    listening=false;
     starting=false;
-
 }
-
-
-/* =========================
-   SPEAK
-========================= */
 
 function speak(text){
-
-    return new Promise(resolve=>{
-
-        if(
-            !voiceOn||
-            !("speechSynthesis" in window)
-        ){
-
-            resolve();
-            return;
-        }
-
+    return new Promise(done=>{
+        if(!speechSynthesis)return done();
 
         speechSynthesis.cancel();
 
-
-        const clean=String(text)
-            .replace(/[*#_`]/g,"")
-            .trim();
-
-
-        if(!clean){
-
-            resolve();
-            return;
-        }
-
-
-        const u=
-            new SpeechSynthesisUtterance(clean);
-
-
-        const voices=
-            speechSynthesis.getVoices();
-
-
-        const voice=
-            voices.find(v=>
-                /en-US|en-GB/i.test(v.lang)
-            );
-
-
-        if(voice)
-            u.voice=voice;
-
-
-        u.lang=
-            voice?.lang||"en-US";
-
+        let u=new SpeechSynthesisUtterance(text);
+        u.lang="en-US";
         u.rate=.92;
         u.pitch=1;
-        u.volume=1;
-
-
-        u.onstart=()=>{
-
-            speaking=true;
-
-            setVoice(
-                "Speaking...",
-                "KAIRO is talking"
-            );
-
-        };
-
-
-        u.onend=()=>{
-
-            speaking=false;
-
-            resolve();
-
-        };
-
-
-        u.onerror=()=>{
-
-            speaking=false;
-
-            resolve();
-
-        };
-
+        u.onend=done;
+        u.onerror=done;
 
         speechSynthesis.speak(u);
-
     });
-
 }
 
 
-/* =========================
-   OPEN VOICE
-========================= */
+/* ---------- VOICE MODE ---------- */
 
 function openVoice(){
+    voice.classList.add("active");
+    voice.setAttribute("aria-hidden","false");
+    if(vstatus)vstatus.textContent="Listening";
+    if(vsub)vsub.textContent="Talk to KAIRO";
 
-    if(!voiceMode)return;
-
-
-    voiceOn=true;
-
-
-    voiceMode.classList.add("active");
-
-    voiceMode.setAttribute(
-        "aria-hidden",
-        "false"
-    );
-
-
-    setVoice(
-        "Listening...",
-        "I'm listening"
-    );
-
-
-    stopListening();
-
-
-    setTimeout(
-        startListening,
-        400
-    );
-
+    stopListen();
+    setTimeout(startListen,400);
 }
-
-
-/* =========================
-   CLOSE VOICE
-   Tap KAIRO bubble to return
-========================= */
 
 function closeVoice(){
-
-    voiceOn=false;
-
-    stopListening();
-
-
-    if("speechSynthesis" in window)
-        speechSynthesis.cancel();
-
-
-    speaking=false;
-
-
-    voiceMode?.classList.remove("active");
-
-    voiceMode?.setAttribute(
-        "aria-hidden",
-        "true"
-    );
-
-
-    setVoice(
-        "Ready",
-        "Talk to KAIRO"
-    );
-
+    voice.classList.remove("active");
+    voice.setAttribute("aria-hidden","true");
+    stopListen();
+    speechSynthesis?.cancel();
 }
 
-
-/* =========================
-   VOICE BUTTONS
-========================= */
-
-mic?.addEventListener(
-    "click",
-    openVoice
-);
-
-miniVoice?.addEventListener(
-    "click",
-    openVoice
-);
+mic.onclick=openVoice;
+vlogo.onclick=closeVoice;
 
 
-/* =========================
-   FLOATING KAIRO
-========================= */
+/* ---------- HISTORY ---------- */
 
-floating?.addEventListener(
-    "click",
-    ()=>{
+function render(q=""){
 
-        /*
-          If Voice Mode is open,
-          bubble works as BACK.
-        */
+    list.innerHTML="";
 
-        if(
-            voiceMode?.classList.contains("active")
-        ){
+    let a=chats();
+    q=q.toLowerCase();
 
-            closeVoice();
+    let filtered=a.filter(c=>
+        !q||
+        c.title.toLowerCase().includes(q)||
+        c.messages.some(m=>m.text.toLowerCase().includes(q))
+    );
 
-        }else{
-
-            openVoice();
-
-        }
-
-    }
-);
-
-
-/* =========================
-   AI CORE
-   Tap core = BACK
-========================= */
-
-voiceLogo?.addEventListener(
-    "click",
-    closeVoice
-);
-
-
-/* =========================
-   HISTORY
-========================= */
-
-historyButton?.addEventListener(
-    "click",
-    ()=>{
-
-        historyPanel?.classList.add("active");
-        historyBackdrop?.classList.add("active");
-
-    }
-);
-
-
-historyBackdrop?.addEventListener(
-    "click",
-    ()=>{
-
-        historyPanel?.classList.remove("active");
-        historyBackdrop?.classList.remove("active");
-
-    }
-);
-
-
-/* =========================
-   BROWSER VOICES
-========================= */
-
-if("speechSynthesis" in window){
-
-    speechSynthesis.onvoiceschanged=()=>{
-        speechSynthesis.getVoices();
+    let n=document.createElement("button");
+    n.className="kairo-history-new";
+    n.textContent="+ New chat";
+    list.appendChild(n);
+    n.onclick=()=>{
+        newChat();
+        chat.innerHTML=`
+        <div class="welcome">
+        <div class="welcome-logo"><div class="welcome-core"></div></div>
+        <h1>Hello, I'm KAIRO</h1>
+        <p>Your AI companion for conversation, answers and ideas.</p>
+        </div>`;
+        closeHistory();
     };
 
+    filtered.forEach(c=>{
+        let e=document.createElement("div");
+        e.className="kairo-history-card";
+
+        let last=c.messages.findLast?.(m=>m.role==="user")||
+                 [...c.messages].reverse().find(m=>m.role==="user");
+
+        e.innerHTML=`
+        <div class="kairo-history-topic">${c.title}</div>
+        <div class="kairo-history-preview">${last?.text||"Conversation"}</div>
+        <div class="kairo-history-meta">
+        ${c.messages.length} messages
+        </div>`;
+
+        list.appendChild(e);
+
+        e.onclick=()=>{
+            current=c;
+            chat.innerHTML="";
+            c.messages.forEach(m=>add(
+                m.text,m.role==="user"?"user":"ai"
+            ));
+            closeHistory();
+        };
+    });
 }
 
+function openHistory(){
+    if(!history.querySelector(".kairo-history-search")){
+        let s=document.createElement("input");
+        s.className="kairo-history-search";
+        s.placeholder="Search conversations…";
+        history.insertBefore(s,list);
+        s.oninput=()=>render(s.value);
+    }
 
-/* =========================
-   READY
-========================= */
+    render();
 
-console.log("KAIRO READY");
+    history.classList.add("open","active");
+    back.classList.add("open","active");
+}
+
+function closeHistory(){
+    history.classList.remove("open","active");
+    back.classList.remove("open","active");
+}
+
+hbtn.onclick=openHistory;
+back.onclick=closeHistory;
+
+
+/* ---------- INIT ---------- */
+
+render();
+console.log("KAIRO ready");
