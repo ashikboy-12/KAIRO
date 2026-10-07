@@ -18,132 +18,136 @@ const providers = [
   }
 ];
 
-function json(data, status = 200) {
-  return new Response(JSON.stringify(data), {
+function json(data,status=200){
+  return new Response(JSON.stringify(data),{
     status,
-    headers: {
-      "Content-Type": "application/json"
-    }
+    headers:{"Content-Type":"application/json"}
   });
 }
 
-async function callGemini(p, prompt) {
-  const r = await fetch(p.url + "?key=" + p.key(), {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      contents: [
-        {
-          parts: [{ text: prompt }]
-        }
-      ],
-      generationConfig: {
-        maxOutputTokens: 500
+async function callGemini(p,prompt,file){
+  const parts=[{text:prompt}];
+
+  if(file?.data && file?.mime){
+    parts.push({
+      inline_data:{
+        mime_type:file.mime,
+        data:file.data
       }
+    });
+  }
+
+  const r=await fetch(p.url+"?key="+p.key(),{
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({
+      contents:[{parts}],
+      generationConfig:{maxOutputTokens:500}
     })
   });
 
-  if (!r.ok) throw new Error("Gemini " + r.status);
+  if(!r.ok)throw new Error("Gemini "+r.status);
 
-  const d = await r.json();
+  const d=await r.json();
 
-  return d.candidates?.[0]?.content?.parts?.[0]?.text || "";
+  return d.candidates?.[0]?.content?.parts?.[0]?.text||"";
 }
 
-async function callOpenAI(p, prompt) {
-  const r = await fetch(p.url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: "Bearer " + p.key()
+async function callOpenAI(p,prompt){
+  const r=await fetch(p.url,{
+    method:"POST",
+    headers:{
+      "Content-Type":"application/json",
+      Authorization:"Bearer "+p.key()
     },
-    body: JSON.stringify({
-      model: p.model,
-      messages: [
+    body:JSON.stringify({
+      model:p.model,
+      messages:[
         {
-          role: "system",
+          role:"system",
           content:
-            "You are KAIRO, a friendly AI companion. Understand Bangla, Banglish, English and Hindi. Answer naturally and concisely. Do not give unnecessary safety warnings. Never claim to see a screen unless visual data was actually provided."
+            "You are KAIRO, a friendly AI companion. Understand Bangla, Banglish, English and Hindi. Answer naturally and concisely. Do not give unnecessary safety warnings. Never claim to see a file or image unless it was actually provided."
         },
         {
-          role: "user",
-          content: prompt
+          role:"user",
+          content:prompt
         }
       ],
-      max_tokens: 500
+      max_tokens:500
     })
   });
 
-  if (!r.ok) throw new Error(p.name + " " + r.status);
+  if(!r.ok)throw new Error(p.name+" "+r.status);
 
-  const d = await r.json();
+  const d=await r.json();
 
-  return d.choices?.[0]?.message?.content || "";
+  return d.choices?.[0]?.message?.content||"";
 }
 
-async function runAI(body) {
-  const message = String(body.message || "").trim();
+async function runAI(body){
+  const message=String(body.message||"").trim();
 
-  if (!message) return "কিছু বলো, আমি শুনছি।";
+  if(!message&&!body.file){
+    return "কিছু বলো, আমি শুনছি।";
+  }
 
-  const memory = JSON.stringify(body.memory || []);
-  const history = JSON.stringify(
-    body.relevantHistory || body.history || []
+  const memory=JSON.stringify(body.memory||[]);
+  const history=JSON.stringify(
+    body.relevantHistory||body.history||[]
   );
 
-  const prompt =
-    "Previous relevant memory:\n" +
-    memory +
-    "\n\nRelevant conversation history:\n" +
-    history +
-    "\n\nUser:\n" +
-    message;
+  const fileInfo=body.file
+    ? "\nA file/image is attached. Analyze it and answer the user's request about it."
+    : "";
 
-  for (const p of providers) {
-    if (!p.key()) continue;
+  const prompt=
+    "Previous relevant memory:\n"+
+    memory+
+    "\n\nRelevant conversation history:\n"+
+    history+
+    "\n\nUser:\n"+
+    message+
+    fileInfo;
 
-    try {
-      const reply =
-        p.name === "Gemini"
-          ? await callGemini(p, prompt)
-          : await callOpenAI(p, prompt);
+  for(const p of providers){
+    if(!p.key())continue;
 
-      if (reply) return reply;
-    } catch (e) {
-      console.log(p.name + " failed:", e.message);
+    try{
+      const reply=p.name==="Gemini"
+        ?await callGemini(p,prompt,body.file)
+        :await callOpenAI(p,prompt);
+
+      if(reply)return reply;
+    }catch(e){
+      console.log(p.name+" failed:",e.message);
     }
   }
 
   throw new Error("All AI providers failed");
 }
 
-export async function POST(request) {
-  try {
-    const body = await request.json();
-    const reply = await runAI(body);
+export async function POST(request){
+  try{
+    const body=await request.json();
+    const reply=await runAI(body);
 
     return json({
-      success: true,
+      success:true,
       reply
     });
-  } catch (e) {
-    console.error("KAIRO API ERROR:", e);
+  }catch(e){
+    console.error("KAIRO API ERROR:",e);
 
-    return json(
-      {
-        success: false,
-        reply: "KAIRO server এখন unavailable। একটু পরে আবার চেষ্টা করো।"
-      },
-      500
-    );
+    return json({
+      success:false,
+      reply:"KAIRO server এখন unavailable। একটু পরে আবার চেষ্টা করো।"
+    },500);
   }
 }
 
-export async function GET() {
+export async function GET(){
   return json({
-    success: true,
-    message: "KAIRO API is online"
+    success:true,
+    message:"KAIRO API is online"
   });
-}
+      }
