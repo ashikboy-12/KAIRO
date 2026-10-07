@@ -1,99 +1,81 @@
-const $ = id => document.getElementById(id);
+const $=id=>document.getElementById(id);
 
-/* =========================
-   ELEMENTS
-========================= */
+const chat=$("chat");
+const input=$("messageInput");
+const send=$("sendButton");
+const mic=$("micButton");
 
-const chat = $("chat");
-const input = $("messageInput");
-const sendButton = $("sendButton");
-const micButton = $("micButton");
+const voiceMode=$("voiceMode");
+const voiceLogo=$("voiceLogo");
+const voiceStatus=$("voiceStatus");
+const voiceSubtitle=$("voiceSubtitle");
 
-const voiceMode = $("voiceMode");
-const voiceStatus = $("voiceStatus");
-const voiceSubtitle = $("voiceSubtitle");
+const miniVoice=$("miniVoiceButton");
+const floating=$("floatingKairo");
 
-const miniVoice = $("miniVoiceButton");
-const floating = $("floatingKairo");
+const historyButton=$("historyButton");
+const historyPanel=$("historyPanel");
+const historyBackdrop=$("historyBackdrop");
 
-const historyButton = $("historyButton");
-const historyPanel = $("historyPanel");
-const historyBackdrop = $("historyBackdrop");
-const historyList = $("historyList");
-
-
-/* =========================
-   STATE
-========================= */
-
-let voiceOn = false;
-let recognition = null;
-let speaking = false;
+let voiceOn=false;
+let recognition=null;
+let speaking=false;
+let starting=false;
 
 
 /* =========================
-   CHAT MESSAGE
+   CHAT
 ========================= */
 
-function message(type, text) {
+function message(type,text){
 
-    if (!chat) return;
+    if(!chat)return;
 
-    const welcome = chat.querySelector(".welcome");
-    if (welcome) welcome.remove();
+    const welcome=chat.querySelector(".welcome");
+    if(welcome)welcome.remove();
 
-    const box = document.createElement("div");
+    const box=document.createElement("div");
 
-    box.className =
-        type === "user"
-        ? "message user-message"
-        : "message ai-message";
+    box.className=
+        type==="user"
+        ?"message user-message"
+        :"message ai-message";
 
-    box.textContent = text;
+    box.textContent=text;
 
     chat.appendChild(box);
-
-    chat.scrollTop = chat.scrollHeight;
+    chat.scrollTop=chat.scrollHeight;
 }
 
 
 /* =========================
-   ASK KAIRO
+   AI
 ========================= */
 
-async function askKairo(text) {
+async function askKairo(text){
 
-    try {
+    try{
 
-        const response = await fetch("/api/api", {
-
-            method: "POST",
-
-            headers: {
-                "Content-Type": "application/json"
+        const r=await fetch("/api/api",{
+            method:"POST",
+            headers:{
+                "Content-Type":"application/json"
             },
-
-            body: JSON.stringify({
-                message: text
+            body:JSON.stringify({
+                message:text
             })
-
         });
 
-        const data = await response.json();
+        const data=await r.json();
 
-        if (!response.ok || !data.success) {
+        if(!r.ok||!data.success)
+            throw new Error(data.error||"API error");
 
-            throw new Error(
-                data.error || "KAIRO API error"
-            );
+        return data.reply||"";
 
-        }
+    }catch(e){
 
-        return data.reply || "";
-
-    } catch (error) {
-
-        console.error("KAIRO ERROR:", error);
+        console.error("KAIRO:",e);
 
         return "Sorry, I couldn't connect right now.";
 
@@ -102,141 +84,102 @@ async function askKairo(text) {
 
 
 /* =========================
-   SEND TEXT
+   TEXT SEND
 ========================= */
 
-async function sendMessage() {
+async function sendMessage(){
 
-    if (!input) return;
+    const text=input?.value.trim();
 
-    const text = input.value.trim();
+    if(!text)return;
 
-    if (!text) return;
+    input.value="";
 
-    input.value = "";
+    message("user",text);
 
-    message("user", text);
+    const reply=await askKairo(text);
 
-    const reply = await askKairo(text);
+    if(reply){
 
-    if (reply) {
+        message("ai",reply);
 
-        message("ai", reply);
-
-        /*
-          Only speak when Voice Mode
-          is actually active.
-        */
-
-        if (voiceOn) {
-            await speak(reply);
-        }
+        /* Normal chat never speaks automatically */
 
     }
 }
 
+send?.addEventListener("click",sendMessage);
 
-/* =========================
-   SEND BUTTON
-========================= */
+input?.addEventListener("keydown",e=>{
 
-sendButton?.addEventListener(
-    "click",
-    sendMessage
-);
+    if(e.key==="Enter"&&!e.shiftKey){
 
-
-/* =========================
-   ENTER SEND
-========================= */
-
-input?.addEventListener(
-    "keydown",
-    event => {
-
-        if (
-            event.key === "Enter" &&
-            !event.shiftKey
-        ) {
-
-            event.preventDefault();
-
-            sendMessage();
-
-        }
+        e.preventDefault();
+        sendMessage();
 
     }
-);
 
-
-/* =========================
-   VOICE RECOGNITION
-========================= */
-
-const Speech =
-    window.SpeechRecognition ||
-    window.webkitSpeechRecognition;
+});
 
 
 /* =========================
    VOICE STATUS
 ========================= */
 
-function setVoice(status, subtitle) {
+function setVoice(status,sub){
 
-    if (voiceStatus) {
-        voiceStatus.textContent = status;
-    }
+    if(voiceStatus)
+        voiceStatus.textContent=status;
 
-    if (voiceSubtitle) {
-        voiceSubtitle.textContent = subtitle;
-    }
+    if(voiceSubtitle)
+        voiceSubtitle.textContent=sub;
 
 }
 
 
 /* =========================
-   START LISTENING
+   SPEECH RECOGNITION
 ========================= */
 
-function startListening() {
+const Speech=
+    window.SpeechRecognition||
+    window.webkitSpeechRecognition;
 
-    if (!voiceOn) return;
 
-    if (!Speech) {
+function startListening(){
+
+    if(!voiceOn||speaking||starting)return;
+
+    if(!Speech){
 
         setVoice(
             "Voice unavailable",
-            "Voice recognition is not supported here"
+            "Speech recognition is not supported"
         );
 
         return;
-
     }
 
-    if (speaking) return;
+    starting=true;
 
-    if (recognition) return;
+    recognition=new Speech();
 
-
-    recognition = new Speech();
-
-    recognition.continuous = false;
-
-    recognition.interimResults = false;
-
-    recognition.maxAlternatives = 1;
+    recognition.continuous=false;
+    recognition.interimResults=false;
+    recognition.maxAlternatives=1;
 
     /*
-      English + Bangla/Banglish friendly.
-      Browser will still determine the
-      actual recognition language.
+      English locale.
+      Bangla/Banglish will be improved
+      later with native speech recognition.
     */
 
-    recognition.lang = "en-US";
+    recognition.lang="en-US";
 
 
-    recognition.onstart = () => {
+    recognition.onstart=()=>{
+
+        starting=false;
 
         setVoice(
             "Listening...",
@@ -246,14 +189,15 @@ function startListening() {
     };
 
 
-    recognition.onresult = async event => {
+    recognition.onresult=async e=>{
 
-        const text =
-            event.results[0][0].transcript.trim();
+        const text=
+            e.results[0][0].transcript.trim();
 
-        recognition = null;
+        recognition=null;
+        starting=false;
 
-        if (!text || !voiceOn) return;
+        if(!text||!voiceOn)return;
 
 
         setVoice(
@@ -262,57 +206,33 @@ function startListening() {
         );
 
 
-        message(
-            "user",
-            text
-        );
+        message("user",text);
 
 
-        const reply =
+        const reply=
             await askKairo(text);
 
 
-        if (!reply || !voiceOn) {
+        if(!reply||!voiceOn){
 
-            if (voiceOn) {
-
-                setVoice(
-                    "Listening...",
-                    "I'm listening"
-                );
-
-                setTimeout(
-                    startListening,
-                    500
-                );
-
-            }
+            if(voiceOn)
+                setTimeout(startListening,700);
 
             return;
-
         }
 
 
-        message(
-            "ai",
-            reply
-        );
+        message("ai",reply);
 
 
         /*
-          IMPORTANT:
-          KAIRO speaks here.
+          ONLY VOICE MODE speaks.
         */
 
         await speak(reply);
 
 
-        /*
-          After speaking,
-          automatically listen again.
-        */
-
-        if (voiceOn) {
+        if(voiceOn){
 
             setTimeout(
                 startListening,
@@ -324,27 +244,28 @@ function startListening() {
     };
 
 
-    recognition.onerror = event => {
+    recognition.onerror=e=>{
 
         console.log(
-            "Voice recognition error:",
-            event.error
+            "Recognition:",
+            e.error
         );
 
-        recognition = null;
+        recognition=null;
+        starting=false;
 
 
-        if (!voiceOn) return;
+        if(!voiceOn)return;
 
 
-        if (
-            event.error === "not-allowed" ||
-            event.error === "service-not-allowed"
-        ) {
+        if(
+            e.error==="not-allowed"||
+            e.error==="service-not-allowed"
+        ){
 
             setVoice(
-                "Microphone blocked",
-                "Allow microphone permission"
+                "Microphone permission",
+                "Allow microphone access"
             );
 
             return;
@@ -352,27 +273,33 @@ function startListening() {
         }
 
 
+        /*
+          Ignore normal recognition errors
+          and quietly try again.
+        */
+
         setTimeout(
             startListening,
-            1000
+            1200
         );
 
     };
 
 
-    recognition.onend = () => {
+    recognition.onend=()=>{
 
-        recognition = null;
+        recognition=null;
+        starting=false;
 
 
-        if (
-            voiceOn &&
+        if(
+            voiceOn&&
             !speaking
-        ) {
+        ){
 
             setTimeout(
                 startListening,
-                500
+                700
             );
 
         }
@@ -380,13 +307,19 @@ function startListening() {
     };
 
 
-    try {
+    try{
 
         recognition.start();
 
-    } catch (error) {
+    }catch(e){
 
-        recognition = null;
+        recognition=null;
+        starting=false;
+
+        setTimeout(
+            startListening,
+            1200
+        );
 
     }
 
@@ -397,15 +330,18 @@ function startListening() {
    STOP LISTENING
 ========================= */
 
-function stopListening() {
+function stopListening(){
 
-    if (!recognition) return;
+    if(recognition){
 
-    try {
-        recognition.stop();
-    } catch (error) {}
+        try{
+            recognition.stop();
+        }catch(e){}
 
-    recognition = null;
+    }
+
+    recognition=null;
+    starting=false;
 
 }
 
@@ -414,95 +350,64 @@ function stopListening() {
    SPEAK
 ========================= */
 
-function speak(text) {
+function speak(text){
 
-    return new Promise(resolve => {
+    return new Promise(resolve=>{
 
-        if (!voiceOn) {
-
-            resolve();
-
-            return;
-
-        }
-
-
-        if (
+        if(
+            !voiceOn||
             !("speechSynthesis" in window)
-        ) {
-
-            setVoice(
-                "Voice unavailable",
-                "Speech output is not supported"
-            );
+        ){
 
             resolve();
-
             return;
-
         }
 
 
         speechSynthesis.cancel();
 
 
-        const cleanText =
-            String(text)
-                .replace(/[*#_`]/g, "")
-                .trim();
+        const clean=String(text)
+            .replace(/[*#_`]/g,"")
+            .trim();
 
 
-        if (!cleanText) {
+        if(!clean){
 
             resolve();
-
             return;
-
         }
 
 
-        const utterance =
-            new SpeechSynthesisUtterance(
-                cleanText
-            );
+        const u=
+            new SpeechSynthesisUtterance(clean);
 
 
-        /*
-          Try to use a natural English voice.
-        */
-
-        const voices =
+        const voices=
             speechSynthesis.getVoices();
 
 
-        const preferred =
-            voices.find(v =>
+        const voice=
+            voices.find(v=>
                 /en-US|en-GB/i.test(v.lang)
             );
 
 
-        if (preferred) {
-
-            utterance.voice =
-                preferred;
-
-        }
+        if(voice)
+            u.voice=voice;
 
 
-        utterance.lang =
-            preferred?.lang || "en-US";
+        u.lang=
+            voice?.lang||"en-US";
+
+        u.rate=.92;
+        u.pitch=1;
+        u.volume=1;
 
 
-        utterance.rate = 0.92;
+        u.onstart=()=>{
 
-        utterance.pitch = 1;
-
-        utterance.volume = 1;
-
-
-        utterance.onstart = () => {
-
-            speaking = true;
+            speaking=true;
 
             setVoice(
                 "Speaking...",
@@ -512,27 +417,25 @@ function speak(text) {
         };
 
 
-        utterance.onend = () => {
+        u.onend=()=>{
 
-            speaking = false;
-
-            resolve();
-
-        };
-
-
-        utterance.onerror = () => {
-
-            speaking = false;
+            speaking=false;
 
             resolve();
 
         };
 
 
-        speechSynthesis.speak(
-            utterance
-        );
+        u.onerror=()=>{
+
+            speaking=false;
+
+            resolve();
+
+        };
+
+
+        speechSynthesis.speak(u);
 
     });
 
@@ -540,21 +443,18 @@ function speak(text) {
 
 
 /* =========================
-   OPEN VOICE MODE
+   OPEN VOICE
 ========================= */
 
-function openVoice() {
+function openVoice(){
 
-    if (!voiceMode) return;
-
-
-    voiceOn = true;
+    if(!voiceMode)return;
 
 
-    voiceMode.classList.add(
-        "active"
-    );
+    voiceOn=true;
 
+
+    voiceMode.classList.add("active");
 
     voiceMode.setAttribute(
         "aria-hidden",
@@ -573,40 +473,32 @@ function openVoice() {
 
     setTimeout(
         startListening,
-        300
+        400
     );
 
 }
 
 
 /* =========================
-   CLOSE VOICE MODE
+   CLOSE VOICE
+   Tap KAIRO bubble to return
 ========================= */
 
-function closeVoice() {
+function closeVoice(){
 
-    voiceOn = false;
-
+    voiceOn=false;
 
     stopListening();
 
 
-    if (
-        "speechSynthesis" in window
-    ) {
-
+    if("speechSynthesis" in window)
         speechSynthesis.cancel();
 
-    }
+
+    speaking=false;
 
 
-    speaking = false;
-
-
-    voiceMode?.classList.remove(
-        "active"
-    );
-
+    voiceMode?.classList.remove("active");
 
     voiceMode?.setAttribute(
         "aria-hidden",
@@ -623,24 +515,13 @@ function closeVoice() {
 
 
 /* =========================
-   CHAT MIC
+   VOICE BUTTONS
 ========================= */
 
-micButton?.addEventListener(
+mic?.addEventListener(
     "click",
-    () => {
-
-        if (voiceOn) return;
-
-        openVoice();
-
-    }
+    openVoice
 );
-
-
-/* =========================
-   MINI VOICE
-========================= */
 
 miniVoice?.addEventListener(
     "click",
@@ -654,11 +535,20 @@ miniVoice?.addEventListener(
 
 floating?.addEventListener(
     "click",
-    () => {
+    ()=>{
 
-        if (
-            floating.dataset.moved !== "true"
-        ) {
+        /*
+          If Voice Mode is open,
+          bubble works as BACK.
+        */
+
+        if(
+            voiceMode?.classList.contains("active")
+        ){
+
+            closeVoice();
+
+        }else{
 
             openVoice();
 
@@ -669,66 +559,57 @@ floating?.addEventListener(
 
 
 /* =========================
+   AI CORE
+   Tap core = BACK
+========================= */
+
+voiceLogo?.addEventListener(
+    "click",
+    closeVoice
+);
+
+
+/* =========================
    HISTORY
 ========================= */
 
-function openHistory() {
-
-    historyPanel?.classList.add(
-        "active"
-    );
-
-    historyBackdrop?.classList.add(
-        "active"
-    );
-
-}
-
-
-function closeHistory() {
-
-    historyPanel?.classList.remove(
-        "active"
-    );
-
-    historyBackdrop?.classList.remove(
-        "active"
-    );
-
-}
-
-
 historyButton?.addEventListener(
     "click",
-    openHistory
+    ()=>{
+
+        historyPanel?.classList.add("active");
+        historyBackdrop?.classList.add("active");
+
+    }
 );
 
 
 historyBackdrop?.addEventListener(
     "click",
-    closeHistory
+    ()=>{
+
+        historyPanel?.classList.remove("active");
+        historyBackdrop?.classList.remove("active");
+
+    }
 );
 
 
 /* =========================
-   LOAD VOICES
+   BROWSER VOICES
 ========================= */
 
-if ("speechSynthesis" in window) {
+if("speechSynthesis" in window){
 
-    speechSynthesis.onvoiceschanged = () => {
-
+    speechSynthesis.onvoiceschanged=()=>{
         speechSynthesis.getVoices();
-
     };
 
 }
 
 
 /* =========================
-   START
+   READY
 ========================= */
 
-console.log(
-    "KAIRO initialized"
-);
+console.log("KAIRO READY");
